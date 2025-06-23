@@ -2,13 +2,22 @@
 
 namespace ChannelEngineCore\Infrastructure;
 
-/*
- * Responsible for initializing dependencies
- */
-
+use ChannelEngine\BusinessLogic\BootstrapComponent as BusinessLogicBootstrap;
+use ChannelEngine\Infrastructure\Configuration\Configuration;
+use ChannelEngine\Infrastructure\Configuration\ConfigEntity;
+use ChannelEngine\Infrastructure\Logger\Interfaces\ShopLoggerAdapter;
+use ChannelEngine\Infrastructure\ORM\Exceptions\RepositoryClassException;
+use ChannelEngine\Infrastructure\ORM\RepositoryRegistry;
+use ChannelEngine\Infrastructure\ServiceRegister;
+use ChannelEngineCore\Infrastructure\Configuration\PrestaShopConfigService;
+use ChannelEngineCore\Infrastructure\Logger\PrestaShopLoggerAdapter;
+use ChannelEngineCore\Infrastructure\ORM\GenericEntityRepository;
 use PrestaShopLogger;
 
-class Bootstrap
+/**
+ * PrestaShop Bootstrap - extends ChannelEngine Business Logic bootstrap
+ */
+class Bootstrap extends BusinessLogicBootstrap
 {
     /**
      * Initializes dependencies
@@ -19,16 +28,55 @@ class Bootstrap
             if (!defined('VIEWS_PATH')) {
                 define('VIEWS_PATH', __DIR__ . '/views');
             }
-            
+
+            parent::init();
+
+            static::initRepositories();
+            static::initPrestaShopServices();
         } catch (\Throwable $e) {
             PrestaShopLogger::addLog(
-                'Critical error: Bootstrap failed! ' . $e->getMessage(),
+                'Bootstrap failed: ' . $e->getMessage(),
                 4,
                 null,
                 'ChannelEngine'
             );
-
-            exit;
+            throw $e;
         }
+    }
+
+    /**
+     * Initializes PrestaShop-specific services only
+     *
+     * @return void
+     */
+    protected static function initPrestaShopServices(): void
+    {
+        ServiceRegister::registerService(
+            Configuration::CLASS_NAME,
+            function() {
+                return PrestaShopConfigService::getInstance();
+            }
+        );
+        ServiceRegister::registerService(
+            ShopLoggerAdapter::CLASS_NAME,
+            function() {
+                return new PrestaShopLoggerAdapter();
+            }
+        );
+    }
+
+    /**
+     * Initializes repositories for PrestaShop database
+     *
+     * @return void
+     *
+     * @throws RepositoryClassException
+     */
+    protected static function initRepositories(): void
+    {
+        RepositoryRegistry::registerRepository(
+            ConfigEntity::CLASS_NAME,
+            GenericEntityRepository::getClassName()
+        );
     }
 }

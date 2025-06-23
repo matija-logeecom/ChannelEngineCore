@@ -1,0 +1,189 @@
+.channelengine-container {
+    background-color: white;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 30px;
+    max-width: 600px;
+    margin: 0 auto;
+    min-height: 500px;
+    display: flex;
+    flex-direction: column;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.channelengine-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 60px;
+}
+
+.channelengine-logo {
+    background-image: url('../img/channelEngineBanner.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    width: 300px;
+    height: 80px;
+    margin: 0 auto;
+}
+
+.channelengine-title {
+    font-size: 32px;
+    font-weight: 400;
+    color: #333;
+    margin: 0;
+}
+
+.channelengine-sync-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+
+.sync-status-container {
+    margin-bottom: 80px;
+}
+
+.sync-status-label {
+    font-size: 18px;
+    color: #333;
+    margin-bottom: 10px;
+    font-weight: 500;
+}
+
+.sync-status-options {
+    font-size: 16px;
+}
+
+.status-done {
+    color: #28a745;
+    font-size: 20px;
+    font-weight: 500;
+}
+
+.status-progress {
+    color: #fd7e14;
+    font-size: 20px;
+    font-weight: 500;
+}
+
+.status-error {
+    color: #dc3545;
+    font-size: 20px;
+    font-weight: 500;
+}
+
+.status-separator {
+    color: #666;
+    margin: 0 5px;
+}
+
+.sync-button {
+    background-color: #4A90E2;
+    color: white;
+    border: none;
+    padding: 15px 40px;
+    border-radius: 6px;
+    font-size: 20px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.sync-button:hover {
+    background-color: #357ABD;
+}
+
+.sync-button:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.3);
+}
+
+.status-done.active,
+.status-progress.active,
+.status-error.active {
+    font-weight: bold;
+    text-decoration: underline;
+}
+
+.sync-last-run {
+    font-size: 14px;
+    color: #666;
+    margin-top: 15px;
+}
+
+.sync-progress {
+    color: #4A90E2;
+    margin-top: 10px;
+    font-weight: 500;
+}
+
+.sync-error-message {
+    font-size: 14px;
+    color: #dc3545;
+    margin-top: 10px;
+    max-width: 400px;
+    word-wrap: break-word;
+}
+
+.sync-button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+#sync-status-value {
+    font-weight: bold;
+    padding: 3px 8px;
+    border-radius: 5px;
+    display: inline-block;
+    margin-left: 5px;
+}
+
+#sync-status-value {
+    font-weight: bold;
+    padding: 3px 8px;
+    border-radius: 5px;
+    display: inline-block;
+    margin-top: 10px;
+}
+
+#sync-status-value.status-done {
+    color: #1a642f;
+    background-color: #e9f7ef;
+}
+
+#sync-status-value.status-in_progress {
+    color: #995400;
+    font-size: 20px;
+    background-color: #fff4e6;
+}
+
+#sync-status-value.status-error {
+    color: #a51f24;
+    background-color: #fbebed;
+}
+
+.status-done, .status-progress, .status-error, .status-separator {
+    display: none;
+}
+
+.sync-status-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sync-status-label {
+    font-size: 20px;
+    color: #333;
+    font-weight: 500;
+    margin: 0;
+}
+
+#sync-status-value {
+    margin-top: 0;
+    margin-left: 0;
+}

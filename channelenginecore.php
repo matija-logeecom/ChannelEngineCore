@@ -33,36 +33,69 @@ class ChannelEngineCore extends Module
 
         $this->confirmUninstall = $this->trans('Are you sure you want to uninstall?',
             [], 'Modules.ChannelEngineCore.Admin');
-
-        if (!Configuration::get('CHANNELENGINECORE_NAME')) {
-            $this->warning = $this->trans('No name provided', [], 'Modules.ChannelEngineCore.Admin');
-        }
     }
 
     /**
      * Install the module and register necessary hooks
-     *
-     * @return bool
      */
     public function install(): bool
     {
-        return parent::install() && $this->installTab();
+        return parent::install()
+            && $this->installTab()
+            && $this->installDatabaseTables();
     }
 
     /**
      * Uninstall the module and clean up
-     *
-     * @return bool
      */
     public function uninstall(): bool
     {
-        return parent::uninstall() && $this->uninstallTab();
+        return parent::uninstall()
+            && $this->uninstallTab()
+            && $this->uninstallDatabaseTables();
+    }
+
+    /**
+     * Install database tables required by ChannelEngine core
+     */
+    private function installDatabaseTables(): bool
+    {
+        $sql = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'channelengine_entity` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `type` VARCHAR(127) NOT NULL,
+            `index_1` VARCHAR(127),
+            `index_2` VARCHAR(127),
+            `index_3` VARCHAR(127),
+            `index_4` VARCHAR(127),
+            `index_5` VARCHAR(127),
+            `index_6` VARCHAR(127),
+            `index_7` VARCHAR(127),
+            `data` LONGTEXT,
+            PRIMARY KEY (`id`),
+            INDEX `type` (`type`),
+            INDEX `index_1` (`index_1`),
+            INDEX `index_2` (`index_2`),
+            INDEX `index_3` (`index_3`),
+            INDEX `index_4` (`index_4`),
+            INDEX `index_5` (`index_5`),
+            INDEX `index_6` (`index_6`),
+            INDEX `index_7` (`index_7`)
+        ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci';
+
+        return Db::getInstance()->execute($sql);
+    }
+
+    /**
+     * Uninstall database tables
+     */
+    private function uninstallDatabaseTables(): bool
+    {
+        $sql = 'DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'channelengine_entity`';
+        return Db::getInstance()->execute($sql);
     }
 
     /**
      * Install admin tab for ChannelEngine management
-     *
-     * @return bool
      */
     private function installTab(): bool
     {
@@ -91,23 +124,14 @@ class ChannelEngineCore extends Module
 
             return $tab->add();
         } catch (Exception $e) {
-            PrestaShopLogger::addLog(
-                'ChannelEngine: Tab installation failed: ' . $e->getMessage(),
-                3,
-                null,
-                'ChannelEngine'
-            );
-
             return false;
         }
     }
+
     /**
      * Uninstall admin tab
-     *
-     * @return bool
      */
     private function uninstallTab(): bool
-
     {
         try {
             $tabCollection = new PrestaShopCollection('Tab');
@@ -121,13 +145,6 @@ class ChannelEngineCore extends Module
 
             return true;
         } catch (Exception $e) {
-            PrestaShopLogger::addLog(
-                'ChannelEngine: Tab uninstall failed: ' . $e->getMessage(),
-                3,
-                null,
-                'ChannelEngine'
-            );
-
             return false;
         }
     }

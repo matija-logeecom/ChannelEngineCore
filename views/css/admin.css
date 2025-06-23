@@ -1,0 +1,279 @@
+.channelengine-container {
+    background-color: #f8f9fa;
+    min-height: 600px;
+    padding: 40px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.channelengine-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 40px;
+    font-size: 24px;
+    font-weight: 600;
+    color: #333;
+}
+
+.channelengine-logo {
+    width: 320px;
+    height: 120px;
+    margin-right: 12px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+}
+
+.channelengine-welcome-card {
+    background: white;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 20px 20px;
+    text-align: center;
+    width: 400px;
+    height: 400px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+}
+
+.channelengine-icon {
+    width: 100px;
+    height: 100px;
+    margin: 0 auto;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.channelengine-icon::before {
+    content: "A";
+    color: white;
+    font-size: 32px;
+    font-weight: bold;
+}
+
+.channelengine-welcome-title {
+    font-size: 24px;
+    font-weight: bold !important;
+    color: #333;
+    margin: 0;
+}
+
+.channelengine-welcome-description {
+    color: #666;
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.channelengine-connect-btn {
+    background-color: #4A90E2;
+    color: white;
+    border: none;
+    align-self: center;
+    padding: 12px 30px;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 500;
+    margin-top: 20px;
+    width: 40%;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    text-decoration: none;
+    display: inline-block;
+}
+
+.channelengine-connect-btn:hover {
+    background-color: #357ABD;
+    text-decoration: none;
+    color: white;
+}
+
+.channelengine-connect-btn:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.3);
+}
+
+.channelengine-modal {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.4);
+    animation: fadeIn 0.3s ease-out;
+}
+
+.channelengine-modal.show {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.channelengine-modal-content {
+    background-color: #fefefe;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    width: 90%;
+    max-width: 500px;
+    position: relative;
+    animation: slideIn 0.3s ease-out;
+}
+
+.channelengine-modal-header {
+    padding: 20px 24px 16px;
+    border-bottom: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.channelengine-modal-title {
+    font-size: 18px;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-bottom: none !important;
+    font-weight: 600;
+    color: #333;
+}
+
+.channelengine-modal-close {
+    background: none;
+    border: none;
+    font-size: 32px !important;
+    cursor: pointer;
+    color: #666;
+    padding: 0;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    line-height: 1;
+    font-weight: normal;
+}
+
+.channelengine-modal-close:hover {
+    background-color: #f0f0f0;
+}
+
+.channelengine-modal-body {
+    padding: 24px;
+    padding-top: 0px;
+}
+
+.channelengine-form-group {
+    margin-bottom: 20px;
+}
+
+.channelengine-form-label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: #333;
+    font-size: 14px;
+}
+
+.channelengine-form-input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.channelengine-form-input:focus {
+    outline: none;
+    border-color: #4A90E2;
+    box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
+}
+
+.channelengine-modal-footer {
+    padding: 0px 24px 24px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.channelengine-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.channelengine-btn-primary {
+    background-color: #4A90E2;
+    color: white;
+}
+
+.channelengine-btn-primary:hover {
+    background-color: #357ABD;
+}
+
+.channelengine-btn-primary:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+.channelengine-btn-secondary {
+    background-color: #f8f9fa;
+    color: #666;
+    border: 1px solid #ddd;
+}
+
+.channelengine-btn-secondary:hover {
+    background-color: #e9ecef;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.channelengine-logo.with-image {
+    background-image: url('../img/channelEngineBanner.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+.channelengine-icon.with-image {
+    background-image: url('../img/channelEngineLogo.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+.channelengine-icon.with-image::before {
+    display: none;
+}
