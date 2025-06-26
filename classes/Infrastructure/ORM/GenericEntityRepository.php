@@ -22,7 +22,7 @@ class GenericEntityRepository implements RepositoryInterface
     const TABLE_NAME = 'channelengine_entity';
 
     protected string $entityClass;
-    private array $indexMapping;
+    private ?array $indexMapping = null;
 
     /**
      * Returns full class name.
@@ -241,6 +241,10 @@ class GenericEntityRepository implements RepositoryInterface
      */
     protected function getIndexMapping(string $property): ?string
     {
+        if ($this->indexMapping === null) {
+            $this->indexMapping = IndexHelper::mapFieldsToIndexes(new $this->entityClass);
+        }
+
         if (array_key_exists($property, $this->indexMapping)) {
             return 'index_' . $this->indexMapping[$property];
         }
