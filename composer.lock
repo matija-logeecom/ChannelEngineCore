@@ -4,15 +4,15 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "acc2f22a7747a90fac4c69e7bea42b6f",
+    "content-hash": "c653c46a8a78d69fae9c67e136695ceb",
     "packages": [
         {
             "name": "channelengine/integration-core",
-            "version": "dev-main",
+            "version": "1.1.3",
             "source": {
                 "type": "git",
                 "url": "git@github-logeecom:channelengine/logeecom-core.git",
-                "reference": "bc0d6e5b15fb3fe1ed366dbed4730eedbebf034b"
+                "reference": "1b1b1561046dbb0bc207e1e50b2598cb55f8e899"
             },
             "require": {
                 "ext-json": "*",
@@ -21,7 +21,6 @@
             "require-dev": {
                 "phpunit/phpunit": "^5.7"
             },
-            "default-branch": true,
             "type": "library",
             "autoload": {
                 "psr-4": {
@@ -39,7 +38,7 @@
                 "proprietary"
             ],
             "description": "ChannelEngine integrations core library",
-            "time": "2024-10-28T10:59:50+00:00"
+            "time": "2024-07-23T14:35:49+00:00"
         },
         {
             "name": "psr/container",
@@ -1109,13 +1108,12 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {
-        "channelengine/integration-core": 20
-    },
+    "stability-flags": {},
     "prefer-stable": false,
     "prefer-lowest": false,
     "platform": {
-        "php": ">=8.2"
+        "php": ">=8.2",
+        "ext-curl": "*"
     },
     "platform-dev": {},
     "plugin-api-version": "2.6.0"

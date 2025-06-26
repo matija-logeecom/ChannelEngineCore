@@ -1,0 +1,98 @@
+<?php
+/**
+ * 2025 ChannelEngine
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the license
+ * that is bundled with this package in the file LICENSE.
+ *
+ * @author    ChannelEngine <support@channelengine.com>
+ * @copyright 2025 ChannelEngine
+ * @license   Licensed under applicable license
+ */
+
+if (!defined('_PS_VERSION_')) {
+    exit;
+}
+
+use ChannelEngine\Infrastructure\ServiceRegister;
+use ChannelEngine\Infrastructure\TaskExecution\Interfaces\AsyncProcessService;
+use ChannelEngine\Infrastructure\Logger\Logger;
+
+class channelenginecoreasyncprocessModuleFrontController extends ModuleFrontController
+{
+    public function __construct()
+    {
+        parent::__construct();
+    }
+
+    /**
+     * Starts process asynchronously.
+     *
+     * @throws PrestaShopException
+     */
+    public function initContent(): void
+    {
+        $guid = trim(Tools::getValue('guid'));
+
+        Logger::logDebug('Received async process request.', 'Integration', array('guid' => $guid));
+
+        try {
+            /** @var AsyncProcessService $asyncProcessService */
+            $asyncProcessService = ServiceRegister::getService(AsyncProcessService::CLASS_NAME);
+            $asyncProcessService->runProcess($guid);
+
+            $this->ajaxRender(json_encode(['success' => true]));
+        } catch (Throwable $e) {
+            Logger::logError(
+                'Async process execution failed: ' . $e->getMessage(),
+                'Integration',
+                array(
+                    'guid' => $guid,
+                    'exception' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                )
+            );
+
+            $this->ajaxRender(json_encode(['success' => false, 'message' => $e->getMessage()]));
+        }
+
+        exit;
+    }
+
+    /**
+     * Initializes AsyncProcess controller.
+     */
+    public function init(): void
+    {
+        try {
+            parent::init();
+        } catch (Exception $e) {
+            Logger::logWarning(
+                'Error initializing AsyncProcessController',
+                'Integration',
+                array(
+                    'Message' => $e->getMessage(),
+                    'Stack trace' => $e->getTraceAsString(),
+                )
+            );
+        }
+    }
+
+    /**
+     * Displays maintenance page if shop is closed.
+     */
+    public function displayMaintenancePage()
+    {
+        // Allow async process in maintenance mode
+    }
+
+    /**
+     * Displays 'country restricted' page if user's country is not allowed.
+     */
+    protected function displayRestrictedCountryPage()
+    {
+        // Allow async process
+    }
+}

@@ -3,7 +3,13 @@
 use ChannelEngine\BusinessLogic\Authorization\Contracts\AuthorizationService;
 use ChannelEngine\BusinessLogic\Authorization\DTO\AuthInfo;
 use ChannelEngine\BusinessLogic\Authorization\Exceptions\CurrencyMismatchException;
+use ChannelEngine\BusinessLogic\InitialSync\ProductSync;
 use ChannelEngine\Infrastructure\ServiceRegister;
+use ChannelEngine\Infrastructure\TaskExecution\Interfaces\TaskRunnerWakeup;
+use ChannelEngine\Infrastructure\TaskExecution\QueueService;
+use ChannelEngine\Infrastructure\TaskExecution\QueueItem;
+use ChannelEngine\Infrastructure\TaskExecution\Interfaces\Priority;
+use ChannelEngine\Infrastructure\TaskExecution\TaskRunnerWakeupService;
 
 class AdminChannelEngineController extends ModuleAdminController
 {
@@ -18,6 +24,8 @@ class AdminChannelEngineController extends ModuleAdminController
 
     /**
      * Handle AJAX requests
+     *
+     * @throws PrestaShopException
      */
     public function ajaxProcess(): void
     {
@@ -32,6 +40,7 @@ class AdminChannelEngineController extends ModuleAdminController
                 'disconnect' => $this->handleDisconnect(),
                 'status' => $this->handleStatus(),
                 'sync' => $this->handleSync(),
+                'sync_status' => $this->handleSyncStatus(),
                 default => ['success' => false, 'message' => 'Unknown action']
             };
         } catch (Throwable $e) {
@@ -46,6 +55,8 @@ class AdminChannelEngineController extends ModuleAdminController
      * Main render method
      *
      * @return string
+     *
+     * @throws SmartyException
      */
     public function renderView(): string
     {
@@ -87,16 +98,21 @@ class AdminChannelEngineController extends ModuleAdminController
      */
     private function renderSyncPage(): string
     {
+        ServiceRegister::getService(TaskRunnerWakeup::CLASS_NAME)->wakeup();
+
         $this->addCSS($this->module->getPathUri() . 'views/css/sync.css');
         $this->addJS($this->module->getPathUri() . 'views/js/ChannelEngineAjax.js');
         $this->addJS($this->module->getPathUri() . 'views/js/admin.js');
 
         $accountName = $this->getAccountName();
+        $syncStatus = $this->getCurrentSyncStatus();
 
         $this->context->smarty->assign([
             'module_dir' => $this->module->getPathUri(),
             'account_name' => $accountName,
             'is_connected' => true,
+            'sync_status' => $syncStatus,
+            'sync_status_json' => json_encode($syncStatus),
         ]);
 
         return $this->context->smarty->fetch(
@@ -127,6 +143,7 @@ class AdminChannelEngineController extends ModuleAdminController
 
             $authService->validateAccountInfo($apiKey, $accountName, $currency->iso_code);
             $authService->setAuthInfo(new AuthInfo($accountName, $apiKey));
+            ServiceRegister::getService(TaskRunnerWakeup::CLASS_NAME)->wakeup();
 
             return ['success' => true, 'message' => 'Connected successfully'];
         } catch (CurrencyMismatchException $e) {
@@ -171,13 +188,14 @@ class AdminChannelEngineController extends ModuleAdminController
             'success' => true,
             'data' => [
                 'is_connected' => $this->isConnected(),
-                'account_name' => $this->getAccountName()
+                'account_name' => $this->getAccountName(),
+                'sync_status' => $this->getCurrentSyncStatus()
             ]
         ];
     }
 
     /**
-     * Handle sync request
+     * Handle manual sync request - This is where we enqueue the sync task
      *
      * @return array
      */
@@ -187,7 +205,149 @@ class AdminChannelEngineController extends ModuleAdminController
             return ['success' => false, 'message' => 'Not connected to ChannelEngine'];
         }
 
-        return ['success' => true, 'message' => 'Sync started successfully'];
+        try {
+            $existingSyncItem = $this->getActiveSyncTask();
+            if ($existingSyncItem && $existingSyncItem->getStatus() === QueueItem::IN_PROGRESS) {
+                return [
+                    'success' => false,
+                    'message' => 'Product synchronization is already in progress'
+                ];
+            }
+
+            $queueService = ServiceRegister::getService(QueueService::CLASS_NAME);
+            $productSyncTask = new ProductSync();
+            $queueItem = $queueService->enqueue(
+                'manual-sync',
+                $productSyncTask,
+                '',
+                Priority::HIGH
+            );
+
+            PrestaShopLogger::addLog(
+                'Manual product sync initiated. Queue Item ID: ' . $queueItem->getId(),
+                1,
+                null,
+                'ChannelEngine'
+            );
+
+            return [
+                'success' => true,
+                'message' => 'Product synchronization started successfully',
+                'queue_item_id' => $queueItem->getId()
+            ];
+
+        } catch (Throwable $e) {
+            PrestaShopLogger::addLog(
+                'Failed to start manual sync: ' . $e->getMessage(),
+                3,
+                null,
+                'ChannelEngine'
+            );
+
+            return [
+                'success' => false,
+                'message' => 'Failed to start synchronization: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Handle sync status request - Check current status of sync tasks
+     *
+     * @return array
+     */
+    private function handleSyncStatus(): array
+    {
+        try {
+            $syncStatus = $this->getCurrentSyncStatus();
+
+            return [
+                'success' => true,
+                'data' => $syncStatus
+            ];
+        } catch (Throwable $e) {
+            return [
+                'success' => false,
+                'message' => 'Failed to get sync status: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Get the current synchronization status by checking queue items
+     *
+     * @return array
+     */
+    private function getCurrentSyncStatus(): array
+    {
+        try {
+            $queueService = ServiceRegister::getService(QueueService::CLASS_NAME);
+            $syncItem = $queueService->findLatestByType(ProductSync::getClassName());
+
+            if (!$syncItem) {
+                return [
+                    'status' => 'none',
+                    'message' => 'No synchronization has been performed yet'
+                ];
+            }
+
+            $status = $syncItem->getStatus();
+            $progress = $syncItem->getProgressFormatted();
+
+            return match ($status) {
+                QueueItem::QUEUED => [
+                    'status' => 'queued',
+                    'message' => 'Synchronization is queued and waiting to start',
+                    'progress' => 0
+                ],
+                QueueItem::IN_PROGRESS => [
+                    'status' => 'in_progress',
+                    'message' => 'Synchronization in progress',
+                    'progress' => $progress
+                ],
+                QueueItem::COMPLETED => [
+                    'status' => 'completed',
+                    'message' => 'Synchronization completed successfully',
+                    'progress' => 100,
+                    'finished_at' => $syncItem->getFinishTimestamp()
+                ],
+                QueueItem::FAILED => [
+                    'status' => 'failed',
+                    'message' => 'Synchronization failed: ' . $syncItem->getFailureDescription(),
+                    'progress' => $progress
+                ],
+                QueueItem::ABORTED => [
+                    'status' => 'aborted',
+                    'message' => 'Synchronization was aborted',
+                    'progress' => $progress
+                ],
+                default => [
+                    'status' => 'unknown',
+                    'message' => 'Unknown synchronization status',
+                    'progress' => $progress
+                ],
+            };
+        } catch (Throwable $e) {
+            return [
+                'status' => 'error',
+                'message' => 'Failed to check sync status: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Get active sync task if any
+     *
+     * @return QueueItem|null
+     */
+    private function getActiveSyncTask(): ?QueueItem
+    {
+        try {
+            $queueService = ServiceRegister::getService(QueueService::CLASS_NAME);
+            return $queueService->findLatestByType(ProductSync::getClassName());
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     /**

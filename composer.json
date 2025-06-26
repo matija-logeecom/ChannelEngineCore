@@ -10,9 +10,10 @@
     ],
     "require": {
         "php": ">=8.2",
-        "channelengine/integration-core": "dev-main",
+        "channelengine/integration-core": "1.1.3",
         "symfony/dependency-injection": "^4.4",
-        "symfony/service-contracts": "^2.2"
+        "symfony/service-contracts": "^2.2",
+        "ext-curl": "*"
     },
     "require-dev": {
         "prestashop/php-dev-tools": "^5.0"

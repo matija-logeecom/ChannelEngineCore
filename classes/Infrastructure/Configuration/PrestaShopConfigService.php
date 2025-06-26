@@ -5,6 +5,7 @@ namespace ChannelEngineCore\Infrastructure\Configuration;
 use ChannelEngine\BusinessLogic\Configuration\ConfigService;
 use ChannelEngine\BusinessLogic\Configuration\DTO\SystemInfo;
 use Context;
+use PrestaShopLogger;
 use Tools;
 
 class PrestaShopConfigService extends ConfigService
@@ -19,7 +20,7 @@ class PrestaShopConfigService extends ConfigService
     /**
      * Retrieves integration name.
      *
-     * @return string Integration name.
+     * @return string
      */
     public function getIntegrationName(): string
     {
@@ -29,18 +30,52 @@ class PrestaShopConfigService extends ConfigService
     /**
      * Returns async process starter url.
      *
-     * @param string $guid Process identifier.
+     * @param string $guid
      *
-     * @return string Formatted URL of async process starter endpoint.
+     * @return string
      */
     public function getAsyncProcessUrl($guid): string
     {
-        return Context::getContext()->link->getAdminLink(
-            'AdminChannelEngine',
-            true,
-            [],
-            ['action' => 'processAsync', 'guid' => $guid]
+        $context = Context::getContext();
+
+        $url = $context->link->getModuleLink(
+            'channelenginecore',
+            'asyncprocess',
+            ['guid' => $guid]
         );
+
+        PrestaShopLogger::addLog(
+            'Generated async process URL: ' . $url,
+            1,
+            null,
+            'ChannelEngine'
+        );
+
+        return $url;
+    }
+
+    /**
+     * Override async process call HTTP method to use GET instead of POST
+     * This matches the working Packlink configuration
+     *
+     * @return string
+     */
+    public function getAsyncProcessCallHttpMethod(): string
+    {
+        return 'GET';
+    }
+
+    /**
+     * Override HTTP configuration options to remove User-Agent
+     * This matches the working Packlink configuration
+     *
+     * @param string $domain
+     *
+     * @return array
+     */
+    public function getHttpConfigurationOptions($domain): array
+    {
+        return [];
     }
 
     /**
