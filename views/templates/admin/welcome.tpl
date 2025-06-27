@@ -17,7 +17,7 @@
             Connect, sync product data to ChannelEngine and orders to your shop.
         </p>
 
-        <button class="channelengine-connect-btn" onclick="ChannelEngine.handleConnect()">
+        <button class="channelengine-connect-btn" onclick="handleChannelEngineConnect()">
             Connect
         </button>
     </div>

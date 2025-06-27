@@ -22,6 +22,22 @@ class AdminChannelEngineController extends ModuleAdminController
         parent::__construct();
     }
 
+    public function setMedia($isNewTheme = false)
+    {
+        parent::setMedia($isNewTheme);
+
+        $module = Module::getInstanceByName('channelengine');
+
+        // Add ChannelEngine JavaScript files in correct order
+        $this->addJS($this->module->getPathUri() . 'views/js/utils/StatusFormatter.js');
+        $this->addJS($this->module->getPathUri() . 'views/js/services/AjaxService.js');
+        $this->addJS($this->module->getPathUri() . 'views/js/services/PollingService.js');
+        $this->addJS($this->module->getPathUri() . 'views/js/controllers/ModalController.js');
+        $this->addJS($this->module->getPathUri() . 'views/js/controllers/ConnectionController.js');
+        $this->addJS($this->module->getPathUri() . 'views/js/controllers/SyncController.js');
+        $this->addJS($this->module->getPathUri() . 'views/js/app.js'); // Main app must be last
+    }
+
     /**
      * Handle AJAX requests
      *
@@ -47,8 +63,7 @@ class AdminChannelEngineController extends ModuleAdminController
             $response = ['success' => false, 'message' => $e->getMessage()];
         }
 
-        $this->ajaxRender(json_encode($response));
-        exit;
+        $this->ajaxDie(json_encode($response));
     }
 
     /**
@@ -77,8 +92,6 @@ class AdminChannelEngineController extends ModuleAdminController
     private function renderWelcomePage(): string
     {
         $this->addCSS($this->module->getPathUri() . 'views/css/admin.css');
-        $this->addJS($this->module->getPathUri() . 'views/js/ChannelEngineAjax.js');
-        $this->addJS($this->module->getPathUri() . 'views/js/admin.js');
 
         $this->context->smarty->assign([
             'module_dir' => $this->module->getPathUri(),
@@ -102,8 +115,6 @@ class AdminChannelEngineController extends ModuleAdminController
             ServiceRegister::getService(TaskRunnerWakeup::CLASS_NAME)->wakeup();
 
             $this->addCSS($this->module->getPathUri() . 'views/css/sync.css');
-            $this->addJS($this->module->getPathUri() . 'views/js/ChannelEngineAjax.js');
-            $this->addJS($this->module->getPathUri() . 'views/js/admin.js');
 
             $accountName = $this->getAccountName();
             $syncStatus = $this->getCurrentSyncStatus();

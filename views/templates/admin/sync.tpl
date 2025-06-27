@@ -11,7 +11,7 @@
             </div>
         </div>
 
-        <button class="sync-button" onclick="ChannelEngine.handleSync()">Synchronize</button>
+        <button class="sync-button" onclick="handleChannelEngineSync()">Synchronize</button>
 
         <div class="sync-progress" style="display: none;"></div>
         <div class="sync-error-message" style="display: none;"></div>

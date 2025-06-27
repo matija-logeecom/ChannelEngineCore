@@ -2,7 +2,7 @@
     <div class="channelengine-modal-content">
         <div class="channelengine-modal-header">
             <h3 class="channelengine-modal-title">Login to ChannelEngine</h3>
-            <button type="button" class="channelengine-modal-close" onclick="ChannelEngine.closeModal()">&times;</button>
+            <button type="button" class="channelengine-modal-close" onclick="ChannelEngineApp.controllers.modal.close()">&times;</button>
         </div>
         <div class="channelengine-modal-body">
             <p style="margin-bottom: 20px; color: #666;">Please enter account data:</p>
@@ -16,7 +16,7 @@
             </div>
         </div>
         <div class="channelengine-modal-footer">
-            <button type="button" class="channelengine-btn channelengine-btn-primary" onclick="ChannelEngine.handleLogin()">Connect</button>
+            <button type="button" class="channelengine-btn channelengine-btn-primary" onclick="handleChannelEngineLogin()">Connect</button>
         </div>
     </div>
 </div>
