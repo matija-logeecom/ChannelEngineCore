@@ -36,11 +36,11 @@ class AdminChannelEngineController extends ModuleAdminController
             $action = $data['action'] ?? Tools::getValue('action', 'status');
 
             $response = match($action) {
-                'connect' => $this->handleConnect($data),
-                'disconnect' => $this->handleDisconnect(),
-                'status' => $this->handleStatus(),
-                'sync' => $this->handleSync(),
-                'sync_status' => $this->handleSyncStatus(),
+                'connect' => $this->processConnection($data),
+                'disconnect' => $this->processDisconnection(),
+                'status' => $this->getConnectionStatus(),
+                'sync' => $this->startProductSync(),
+                'sync_status' => $this->getSyncStatus(),
                 default => ['success' => false, 'message' => 'Unknown action']
             };
         } catch (Throwable $e) {
@@ -62,9 +62,9 @@ class AdminChannelEngineController extends ModuleAdminController
     {
         if ($this->isConnected()) {
             return $this->renderSyncPage();
-        } else {
-            return $this->renderWelcomePage();
         }
+
+        return $this->renderWelcomePage();
     }
 
     /**
@@ -98,26 +98,41 @@ class AdminChannelEngineController extends ModuleAdminController
      */
     private function renderSyncPage(): string
     {
-        ServiceRegister::getService(TaskRunnerWakeup::CLASS_NAME)->wakeup();
+        try {
+            ServiceRegister::getService(TaskRunnerWakeup::CLASS_NAME)->wakeup();
 
-        $this->addCSS($this->module->getPathUri() . 'views/css/sync.css');
-        $this->addJS($this->module->getPathUri() . 'views/js/ChannelEngineAjax.js');
-        $this->addJS($this->module->getPathUri() . 'views/js/admin.js');
+            $this->addCSS($this->module->getPathUri() . 'views/css/sync.css');
+            $this->addJS($this->module->getPathUri() . 'views/js/ChannelEngineAjax.js');
+            $this->addJS($this->module->getPathUri() . 'views/js/admin.js');
 
-        $accountName = $this->getAccountName();
-        $syncStatus = $this->getCurrentSyncStatus();
+            $accountName = $this->getAccountName();
+            $syncStatus = $this->getCurrentSyncStatus();
 
-        $this->context->smarty->assign([
-            'module_dir' => $this->module->getPathUri(),
-            'account_name' => $accountName,
-            'is_connected' => true,
-            'sync_status' => $syncStatus,
-            'sync_status_json' => json_encode($syncStatus),
-        ]);
+            $this->context->smarty->assign([
+                'module_dir' => $this->module->getPathUri(),
+                'account_name' => $accountName,
+                'is_connected' => true,
+                'sync_status' => $syncStatus,
+                'sync_status_json' => json_encode($syncStatus),
+            ]);
 
-        return $this->context->smarty->fetch(
-            $this->module->getLocalPath() . 'views/templates/admin/sync.tpl'
-        );
+            return $this->context->smarty->fetch(
+                $this->module->getLocalPath() . 'views/templates/admin/sync.tpl'
+            );
+        } catch (Throwable $e) {
+            Logger::logError('Failed to get sync status: ' . $e->getMessage(),
+            'AdminController');
+
+            $this->context->smarty->assign([
+                'module_dir' => $this->module->getPathUri(),
+                'error_message' => 'Failed to load synchronization status',
+                'is_connected' => true,
+            ]);
+
+            return $this->context->smarty->fetch(
+                $this->module->getLocalPath() . 'views/templates/admin/sync.tpl'
+            );
+        }
     }
 
     /**
@@ -127,7 +142,7 @@ class AdminChannelEngineController extends ModuleAdminController
      *
      * @return array
      */
-    private function handleConnect(array $data = []): array
+    private function processConnection(array $data = []): array
     {
         $accountName = $data['account_name'] ?? Tools::getValue('account_name');
         $apiKey = $data['api_key'] ?? Tools::getValue('api_key');
@@ -147,16 +162,25 @@ class AdminChannelEngineController extends ModuleAdminController
 
             return ['success' => true, 'message' => 'Connected successfully'];
         } catch (CurrencyMismatchException $e) {
+            Logger::logError('Currency mismatch: ' . $e->getMessage(),
+                'AdminController');
+
             return ['success' => false, 'message' =>
                 'Currency mismatch - ' . 'your shop currency must match your ChannelEngine account currency'];
 
         } catch (HttpRequestException $e) {
+            Logger::logError('Invalid credentials: ' . $e->getMessage(),
+                'AdminController');
+
             return ['success' => false, 'message' =>
                 'Invalid credentials - please check your account name and API key'];
 
         } catch (Throwable $e) {
-            Logger::logError('ChannelEngine connection error: ' . $e->getMessage(), 3);
-            return ['success' => false, 'message' => 'Connection failed - please check your credentials and try again'];
+            Logger::logError('ChannelEngine connection error: ' . $e->getMessage(),
+                'AdminController');
+
+            return ['success' => false,
+                'message' => 'Connection failed - please check your credentials and try again'];
         }
     }
 
@@ -165,7 +189,7 @@ class AdminChannelEngineController extends ModuleAdminController
      *
      * @return array
      */
-    private function handleDisconnect(): array
+    private function processDisconnection(): array
     {
         try {
             $authService = ServiceRegister::getService(AuthorizationService::CLASS_NAME);
@@ -173,6 +197,9 @@ class AdminChannelEngineController extends ModuleAdminController
 
             return ['success' => true, 'message' => 'Disconnected successfully'];
         } catch (Throwable $e) {
+            Logger::logError('Failed to disconnect: ' . $e->getMessage(),
+            'AdminController');
+
             return ['success' => false, 'message' => 'Disconnect failed: ' . $e->getMessage()];
         }
     }
@@ -182,16 +209,23 @@ class AdminChannelEngineController extends ModuleAdminController
      *
      * @return array
      */
-    private function handleStatus(): array
+    private function getConnectionStatus(): array
     {
-        return [
-            'success' => true,
-            'data' => [
-                'is_connected' => $this->isConnected(),
-                'account_name' => $this->getAccountName(),
-                'sync_status' => $this->getCurrentSyncStatus()
-            ]
-        ];
+        try {
+            return [
+                'success' => true,
+                'data' => [
+                    'is_connected' => $this->isConnected(),
+                    'account_name' => $this->getAccountName(),
+                    'sync_status' => $this->getCurrentSyncStatus()
+                ]
+            ];
+        } catch (Throwable $e) {
+            Logger::logError('Failed to get connection status: ' . $e->getMessage(),
+                'AdminController');
+
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
     }
 
     /**
@@ -199,7 +233,7 @@ class AdminChannelEngineController extends ModuleAdminController
      *
      * @return array
      */
-    private function handleSync(): array
+    private function startProductSync(): array
     {
         if (!$this->isConnected()) {
             return ['success' => false, 'message' => 'Not connected to ChannelEngine'];
@@ -248,11 +282,11 @@ class AdminChannelEngineController extends ModuleAdminController
     }
 
     /**
-     * Handle sync status request - Check current status of sync tasks
+     * Check current status of sync tasks
      *
      * @return array
      */
-    private function handleSyncStatus(): array
+    private function getSyncStatus(): array
     {
         try {
             $syncStatus = $this->getCurrentSyncStatus();
@@ -262,6 +296,9 @@ class AdminChannelEngineController extends ModuleAdminController
                 'data' => $syncStatus
             ];
         } catch (Throwable $e) {
+            Logger::logError('Failed to get sync status: ' . $e->getMessage(),
+                'AdminController');
+
             return [
                 'success' => false,
                 'message' => 'Failed to get sync status: ' . $e->getMessage()
@@ -273,6 +310,8 @@ class AdminChannelEngineController extends ModuleAdminController
      * Get the current synchronization status by checking queue items
      *
      * @return array
+     *
+     * @throws Throwable
      */
     private function getCurrentSyncStatus(): array
     {
@@ -283,50 +322,38 @@ class AdminChannelEngineController extends ModuleAdminController
             if (!$syncItem) {
                 return [
                     'status' => 'none',
-                    'message' => 'No synchronization has been performed yet'
+                    'progress' => 0
                 ];
             }
 
-            $status = $syncItem->getStatus();
-            $progress = $syncItem->getProgressFormatted();
+            $data = [
+                'status' => $syncItem->getStatus(),
+                'progress' => $syncItem->getProgressFormatted(),
+                'retries' => $syncItem->getRetries()
+            ];
 
-            return match ($status) {
-                QueueItem::QUEUED => [
-                    'status' => 'queued',
-                    'message' => 'Synchronization is queued and waiting to start',
-                    'progress' => 0
-                ],
-                QueueItem::IN_PROGRESS => [
-                    'status' => 'in_progress',
-                    'message' => 'Synchronization in progress',
-                    'progress' => $progress
-                ],
-                QueueItem::COMPLETED => [
-                    'status' => 'completed',
-                    'message' => 'Synchronization completed successfully',
-                    'progress' => 100,
-                    'finished_at' => $syncItem->getFinishTimestamp()
-                ],
-                QueueItem::FAILED => [
-                    'status' => 'failed',
-                    'message' => 'Synchronization failed: ' . $syncItem->getFailureDescription(),
-                    'progress' => $progress
-                ],
-                QueueItem::ABORTED => [
-                    'status' => 'aborted',
-                    'message' => 'Synchronization was aborted',
-                    'progress' => $progress
-                ],
-                default => [
-                    'status' => 'unknown',
-                    'message' => 'Unknown synchronization status',
-                    'progress' => $progress
-                ],
-            };
+            if ($syncItem->getFinishTimestamp()) {
+                $data['finished_at'] = $syncItem->getFinishTimestamp();
+            }
+
+            if ($syncItem->getStartTimestamp()) {
+                $data['started_at'] = $syncItem->getStartTimestamp();
+            }
+
+            if ($syncItem->getStatus() === QueueItem::FAILED && $syncItem->getFailureDescription()) {
+                $data['failure_description'] = $syncItem->getFailureDescription();
+            }
+
+            return $data;
         } catch (Throwable $e) {
+            Logger::logError(
+                'Failed to get sync status: ' . $e->getMessage(),
+                'AdminController'
+            );
+
             return [
                 'status' => 'error',
-                'message' => 'Failed to check sync status: ' . $e->getMessage()
+                'error_message' => 'Failed to retrieve sync status'
             ];
         }
     }
@@ -342,6 +369,9 @@ class AdminChannelEngineController extends ModuleAdminController
             $queueService = ServiceRegister::getService(QueueService::CLASS_NAME);
             return $queueService->findLatestByType(ProductSync::getClassName());
         } catch (Throwable $e) {
+            Logger::logWarning('Failed to get active sync status: ' . $e->getMessage(),
+                'AdminController');
+
             return null;
         }
     }
@@ -355,8 +385,12 @@ class AdminChannelEngineController extends ModuleAdminController
     {
         try {
             $authService = ServiceRegister::getService(AuthorizationService::CLASS_NAME);
+
             return $authService->getAuthInfo() !== null;
         } catch (Throwable $e) {
+            Logger::logWarning('Failed to check connection: ' . $e->getMessage(),
+            'AdminController');
+
             return false;
         }
     }
@@ -370,8 +404,12 @@ class AdminChannelEngineController extends ModuleAdminController
     {
         try {
             $authService = ServiceRegister::getService(AuthorizationService::CLASS_NAME);
+
             return $authService->getAuthInfo()->getAccountName();
         } catch (Throwable $e) {
+            Logger::logWarning('Failed to get account name: ' . $e->getMessage(),
+                'AdminController');
+
             return null;
         }
     }

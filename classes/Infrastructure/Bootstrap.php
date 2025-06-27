@@ -8,8 +8,8 @@ use ChannelEngine\BusinessLogic\Products\Entities\ProductEvent;
 use ChannelEngine\BusinessLogic\Products\Listeners\TickEventListener;
 use ChannelEngine\BusinessLogic\TransactionLog\Entities\Details;
 use ChannelEngine\BusinessLogic\TransactionLog\Entities\TransactionLog;
-use ChannelEngine\Infrastructure\Configuration\Configuration;
 use ChannelEngine\Infrastructure\Configuration\ConfigEntity;
+use ChannelEngine\Infrastructure\Configuration\Configuration;
 use ChannelEngine\Infrastructure\Logger\Interfaces\ShopLoggerAdapter;
 use ChannelEngine\Infrastructure\ORM\Exceptions\RepositoryClassException;
 use ChannelEngine\Infrastructure\ORM\RepositoryRegistry;
@@ -21,12 +21,11 @@ use ChannelEngine\Infrastructure\TaskExecution\Process;
 use ChannelEngine\Infrastructure\TaskExecution\QueueItem;
 use ChannelEngine\Infrastructure\TaskExecution\TaskEvents\TickEvent;
 use ChannelEngine\Infrastructure\Utility\Events\EventBus;
-use ChannelEngineCore\Service\PrestaShopProductsService;
+use ChannelEngineCore\Business\Service\PrestaShopProductsService;
 use ChannelEngineCore\Infrastructure\Configuration\PrestaShopConfigService;
 use ChannelEngineCore\Infrastructure\Logger\PrestaShopLoggerAdapter;
 use ChannelEngineCore\Infrastructure\ORM\GenericEntityRepository;
 use ChannelEngineCore\Infrastructure\ORM\QueueItemRepository;
-
 use PrestaShopLogger;
 
 /**
@@ -39,24 +38,8 @@ class Bootstrap extends BusinessLogicBootstrap
      */
     public static function init(): void
     {
-        try {
-            if (!defined('VIEWS_PATH')) {
-                define('VIEWS_PATH', __DIR__ . '/views');
-            }
-
             parent::init();
-
-            static::initRepositories();
             static::initPrestaShopServices();
-        } catch (\Throwable $e) {
-            PrestaShopLogger::addLog(
-                'Bootstrap failed: ' . $e->getMessage(),
-                4,
-                null,
-                'ChannelEngine'
-            );
-            throw $e;
-        }
     }
 
     /**
@@ -66,7 +49,6 @@ class Bootstrap extends BusinessLogicBootstrap
     {
         parent::initServices();
 
-        // Register the missing Serializer service
         ServiceRegister::registerService(
             Serializer::CLASS_NAME,
             function () {

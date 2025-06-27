@@ -170,7 +170,7 @@ var ChannelEngine = {
                 if (response && response.success) {
                     self.displaySyncStatus({
                         status: 'queued',
-                        message: 'Synchronization started, processing...'
+                        progress: 0
                     });
 
                     self.startSyncStatusPolling(2000);
@@ -222,6 +222,101 @@ var ChannelEngine = {
                 alert('Disconnect failed: ' + error);
             }
         );
+    },
+
+    /**
+     * Helper method to get user-friendly status message
+     */
+    getStatusMessage: function(statusData) {
+        if (!statusData || !statusData.status) {
+            return 'Invalid status data';
+        }
+
+        var status = statusData.status;
+        var messages = {
+            'none': 'Not Started',
+            'queued': 'Queued',
+            'in_progress': 'In Progress',
+            'completed': 'Completed',
+            'failed': 'Failed',
+            'aborted': 'Aborted',
+            'error': 'Error'
+        };
+
+        var message = messages[status] || 'Unknown status';
+
+        // Handle special cases
+        switch (status) {
+            case 'in_progress':
+                var progress = statusData.progress || 0;
+                message = 'Synchronization in progress (' + Math.round(progress) + '%)';
+                break;
+
+            case 'failed':
+                if (statusData.failure_description) {
+                    message = 'Synchronization failed: ' + statusData.failure_description;
+                }
+                break;
+
+            case 'error':
+                if (statusData.error_message) {
+                    message = statusData.error_message;
+                }
+                break;
+
+            case 'completed':
+                if (statusData.finished_at) {
+                    var finishedDate = new Date(statusData.finished_at * 1000);
+                    message += ' at ' + finishedDate.toLocaleString();
+                }
+                break;
+        }
+
+        return message;
+    },
+
+    /**
+     * Helper method to get CSS class for status
+     */
+    getStatusClass: function(status) {
+        var classes = {
+            'none': 'status-none',
+            'queued': 'status-queued',
+            'in_progress': 'status-in_progress',
+            'completed': 'status-done',
+            'failed': 'status-error',
+            'aborted': 'status-error',
+            'error': 'status-error'
+        };
+
+        return classes[status] || 'status-none';
+    },
+
+    /**
+     * Helper method to update sync button based on status
+     */
+    updateSyncButton: function(statusData) {
+        var syncButton = document.querySelector('.sync-button');
+        if (!syncButton) return;
+
+        var status = statusData.status;
+
+        switch (status) {
+            case 'queued':
+                syncButton.textContent = 'Queued...';
+                syncButton.disabled = true;
+                break;
+
+            case 'in_progress':
+                var progress = statusData.progress || 0;
+                syncButton.textContent = 'Synchronizing... (' + Math.round(progress) + '%)';
+                syncButton.disabled = true;
+                break;
+
+            default:
+                syncButton.textContent = 'Synchronize';
+                syncButton.disabled = false;
+        }
     },
 
     /**
@@ -277,51 +372,58 @@ var ChannelEngine = {
     },
 
     /**
-     * Handle sync status update from server
+     * Handle sync status update from server - simplified
      */
     handleSyncStatusUpdate: function(statusData) {
-        console.log('Sync status update:', statusData);
+        console.log('Sync status update received:', statusData);
+
+        // Handle null or undefined statusData
+        if (!statusData) {
+            console.warn('statusData is null or undefined, using default');
+            statusData = { status: 'none', progress: 0 };
+        }
+
+        // Validate status data
+        if (!statusData.status) {
+            console.warn('statusData.status is missing, using default');
+            statusData = { status: 'none', progress: 0 };
+        }
 
         this.displaySyncStatus(statusData);
+        this.updateSyncButton(statusData);
 
-        var syncButton = document.querySelector('.sync-button');
-        var status = statusData ? statusData.status : 'error';
-        if (syncButton) {
-            switch (status) {
-                case 'queued':
-                    syncButton.textContent = 'Queued...';
-                    syncButton.disabled = true;
-                    break;
+        // Adjust polling frequency based on status
+        this.adjustPollingFrequency(statusData.status);
+    },
 
-                case 'in_progress':
-                    var progress = statusData.progress || 0;
-                    syncButton.textContent = 'Synchronizing... (' + Math.round(progress) + '%)';
-                    syncButton.disabled = true;
-                    break;
+    /**
+     * Adjust polling frequency based on status
+     */
+    adjustPollingFrequency: function(status) {
+        var interval = 5000; // default
 
-                case 'completed':
-                    syncButton.textContent = 'Synchronize';
-                    syncButton.disabled = false;
-                    this.startSyncStatusPolling(10000);
-                    break;
+        switch (status) {
+            case 'in_progress':
+            case 'queued':
+                interval = 2000; // Poll more frequently during active sync
+                break;
+            case 'completed':
+            case 'failed':
+            case 'aborted':
+                interval = 10000; // Poll less frequently when done
+                break;
+        }
 
-                case 'failed':
-                case 'aborted':
-                case 'error':
-                    syncButton.textContent = 'Synchronize';
-                    syncButton.disabled = false;
-                    this.startSyncStatusPolling(10000);
-                    break;
-
-                default:
-                    syncButton.textContent = 'Synchronize';
-                    syncButton.disabled = false;
-            }
+        if (this.syncStatusInterval) {
+            clearInterval(this.syncStatusInterval);
+            this.syncStatusInterval = setInterval(() => {
+                this.updateSyncStatus();
+            }, interval);
         }
     },
 
     /**
-     * Display sync status in the UI
+     * Display sync status in the UI - now uses helper methods
      */
     displaySyncStatus: function(statusData) {
         console.log('Displaying sync status:', statusData);
@@ -332,79 +434,39 @@ var ChannelEngine = {
             return;
         }
 
+        var message = this.getStatusMessage(statusData);
+        var cssClass = this.getStatusClass(statusData.status);
+
         statusValue.className = '';
-
-        var status = statusData ? statusData.status : 'none';
-        var displayText = '';
-        var cssClass = '';
-
-        switch (status) {
-            case 'none':
-                displayText = 'Not started';
-                cssClass = 'status-none';
-                break;
-
-            case 'queued':
-                displayText = 'Queued';
-                cssClass = 'status-queued';
-                break;
-
-            case 'in_progress':
-                var progress = statusData.progress || 0;
-                displayText = 'In progress (' + Math.round(progress) + '%)';
-                cssClass = 'status-in_progress';
-                break;
-
-            case 'completed':
-                displayText = 'Completed';
-                cssClass = 'status-done';
-                break;
-
-            case 'failed':
-                displayText = 'Failed';
-                cssClass = 'status-error';
-                break;
-
-            case 'aborted':
-                displayText = 'Aborted';
-                cssClass = 'status-error';
-                break;
-
-            case 'error':
-                displayText = 'Error';
-                cssClass = 'status-error';
-                break;
-
-            default:
-                displayText = 'Unknown';
-                cssClass = 'status-none';
-        }
-
-        statusValue.textContent = displayText;
+        statusValue.textContent = message;
         statusValue.classList.add(cssClass);
 
-        var errorElement = document.querySelector('.sync-error-message');
-        if (errorElement) {
-            if ((status === 'failed' || status === 'error') && statusData.message) {
-                errorElement.style.display = 'block';
-                errorElement.textContent = statusData.message;
-            } else {
-                errorElement.style.display = 'none';
-            }
-        }
-
+        // Handle progress display
         var progressElement = document.querySelector('.sync-progress');
         if (progressElement) {
-            if (status === 'in_progress' && statusData.progress !== undefined) {
+            if (statusData.status === 'in_progress' && statusData.progress !== undefined) {
                 progressElement.style.display = 'block';
                 progressElement.textContent = 'Progress: ' + Math.round(statusData.progress) + '%';
             } else {
                 progressElement.style.display = 'none';
             }
         }
+
+        // Handle error messages
+        var errorElement = document.querySelector('.sync-error-message');
+        if (errorElement) {
+            if ((statusData.status === 'failed' || statusData.status === 'error')) {
+                errorElement.style.display = 'block';
+                var errorMessage = statusData.failure_description || statusData.error_message || 'Unknown error occurred';
+                errorElement.textContent = errorMessage;
+            } else {
+                errorElement.style.display = 'none';
+            }
+        }
     }
 };
 
+// Initialize when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function() {
         ChannelEngine.init();

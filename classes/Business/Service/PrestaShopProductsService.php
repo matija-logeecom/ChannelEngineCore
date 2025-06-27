@@ -1,48 +1,48 @@
 <?php
 
-namespace ChannelEngineCore\Service;
+namespace ChannelEngineCore\Business\Service;
 
-use ChannelEngine\BusinessLogic\Products\Contracts\ProductsService;
 use ChannelEngine\BusinessLogic\Products\Domain\Product;
-
+use ChannelEngineCore\Business\DTO\PrestaShopProduct as ProductDTO;
+use ChannelEngine\BusinessLogic\Products\Contracts\ProductsService;
 use ChannelEngine\Infrastructure\Logger\Logger;
-use DbQuery;
+use Configuration as PrestaShopConfiguration;
+use Context;
 use Exception;
+use Image;
+use Link;
+use PrestaShopCollection;
 use PrestaShopDatabaseException;
+use PrestaShopException;
 use Product as PrestaShopProduct;
 use StockAvailable;
-use Context;
-use Link;
-use Db;
-use Configuration as PrestaShopConfiguration;
-use Image;
 use Validate;
 
 class PrestaShopProductsService implements ProductsService
 {
+
     /**
      * Gets all product IDs
      *
      * @throws PrestaShopDatabaseException
+     * @throws PrestaShopException
      */
     public function getProductIds($page, $limit = 5000): array
     {
-        $offset = $page * $limit;
-        $db = Db::getInstance();
+        $collection = new PrestaShopCollection('Product');
+        $collection->where('active', '=', 1);
+        $collection->setPageSize($limit);
+        $collection->setPageNumber($page + 1);
+        $collection->orderBy('id_product', 'ASC');
 
-        $query = new DbQuery();
-        $query->select('p.id_product');
-        $query->from('product', 'p');
-        $query->where('p.active = 1');
-        $query->limit($limit, $offset);
+        $products = $collection->getResults();
 
-        $results = $db->executeS($query);
-
-        if (!is_array($results)) {
-            return [];
+        $ids = [];
+        foreach ($products as $product) {
+            $ids[] = $product->id;
         }
 
-        return array_column($results, 'id_product');
+        return $ids;
     }
 
     /**
@@ -63,9 +63,9 @@ class PrestaShopProductsService implements ProductsService
 
         foreach ($ids as $id) {
             try {
-                $product = $this->createProductFromId($id, $context);
-                if ($product !== null) {
-                    $products[] = $product;
+                $prestaShopProductDTO = $this->loadProductById($id, $context);
+                if ($prestaShopProductDTO !== null) {
+                    $products[] = $prestaShopProductDTO->toCoreProduct();
                 }
             } catch (Exception $e) {
                 $this->logProductError($id, $e);
@@ -97,9 +97,9 @@ class PrestaShopProductsService implements ProductsService
      * @param mixed $id
      * @param array $context
      *
-     * @return Product|null
+     * @return ProductDTO|null
      */
-    private function createProductFromId($id, array $context): ?Product
+    private function loadProductById($id, array $context): ?ProductDTO
     {
         $prestashopProduct = new PrestaShopProduct((int)$id, false, $context['idLang'], $context['idShop']);
 
@@ -107,33 +107,10 @@ class PrestaShopProductsService implements ProductsService
             return null;
         }
 
-        $productData = $this->extractProductData($prestashopProduct, $context);
+        $productData = $this->getProductDataFromPrestaShop($prestashopProduct, $context);
         $mainImageUrl = $this->getMainImageUrl($prestashopProduct, $context);
 
-        return new Product(
-            $productData['id'],
-            $productData['price'],
-            $productData['stock'],
-            $productData['name'],
-            $productData['description'],
-            null, // purchasePrice
-            null, // msrp
-            $productData['vatRateType'],
-            null, // shippingCost
-            null, // shippingTime
-            $productData['ean'],
-            null, // manufacturerProductNumber
-            null, // url
-            null, // brand
-            null, // size
-            null, // color
-            $mainImageUrl,
-            [], // additionalImageUrls
-            [], // customAttributes
-            '', // categoryTrail
-            false, // hasThreeLevelSync
-            [] // variants
-        );
+        return ProductDTO::fromPrestaShopData($productData, $mainImageUrl);
     }
 
     /**
@@ -144,17 +121,18 @@ class PrestaShopProductsService implements ProductsService
      *
      * @return array
      */
-    private function extractProductData(PrestaShopProduct $prestashopProduct, array $context): array
+    private function getProductDataFromPrestaShop(PrestaShopProduct $prestashopProduct, array $context): array
     {
         $productId = (int)$prestashopProduct->id;
 
         return [
             'id' => $productId,
             'price' => (float)$prestashopProduct->getPrice(true, null, 6),
-            'stock' => StockAvailable::getQuantityAvailableByProduct($productId, null, $context['idShop']),
+            'stock' => StockAvailable::getQuantityAvailableByProduct(
+                $productId, null, $context['idShop']),
             'name' => $prestashopProduct->name,
             'description' => $prestashopProduct->description,
-            'ean' => $this->getValidEan($prestashopProduct->ean13),
+            'ean' => !empty($prestashopProduct->ean13) ? $prestashopProduct->ean13 : null,
             'vatRateType' => $this->getVatRateType($prestashopProduct)
         ];
     }
@@ -215,40 +193,6 @@ class PrestaShopProductsService implements ProductsService
             "Error processing product {$id}: " . $e->getMessage(),
             'PrestaShopProductsService'
         );
-    }
-
-    /**
-     *  Get valid EAN or null if invalid
-`    *
-     * @param string|null $ean
-     *
-     * @return string|null
-     */
-    private function getValidEan(?string $ean): ?string
-    {
-        if (empty($ean)) {
-            return null;
-        }
-
-        $ean = trim($ean);
-
-        if (!preg_match('/^\d{8}$|^\d{12}$|^\d{13}$|^\d{14}$/', $ean)) {
-            return null;
-        }
-
-        if (strlen($ean) === 13) {
-            $checksum = 0;
-            for ($i = 0; $i < 12; $i++) {
-                $checksum += (int)$ean[$i] * (($i % 2 === 0) ? 1 : 3);
-            }
-            $calculatedCheck = (10 - ($checksum % 10)) % 10;
-
-            if ($calculatedCheck != (int)$ean[12]) {
-                return null;
-            }
-        }
-
-        return $ean;
     }
 
     /**

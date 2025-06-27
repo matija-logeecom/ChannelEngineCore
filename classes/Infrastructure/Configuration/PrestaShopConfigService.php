@@ -64,19 +64,6 @@ class PrestaShopConfigService extends ConfigService
     }
 
     /**
-     * Override HTTP configuration options to remove User-Agent
-     * This matches the working Packlink configuration
-     *
-     * @param string $domain
-     *
-     * @return array
-     */
-    public function getHttpConfigurationOptions($domain): array
-    {
-        return [];
-    }
-
-    /**
      * Provides information about the system.
      *
      * @return SystemInfo
