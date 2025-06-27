@@ -5,10 +5,10 @@ namespace ChannelEngineCore\Service;
 use ChannelEngine\BusinessLogic\Products\Contracts\ProductsService;
 use ChannelEngine\BusinessLogic\Products\Domain\Product;
 
+use ChannelEngine\Infrastructure\Logger\Logger;
 use DbQuery;
 use Exception;
 use PrestaShopDatabaseException;
-use PrestaShopLogger;
 use Product as PrestaShopProduct;
 use StockAvailable;
 use Context;
@@ -211,11 +211,9 @@ class PrestaShopProductsService implements ProductsService
      */
     private function logProductError(int $id, Exception $e): void
     {
-        PrestaShopLogger::addLog(
+        Logger::logError(
             "Error processing product {$id}: " . $e->getMessage(),
-            3,
-            null,
-            'ChannelEngine'
+            'PrestaShopProductsService'
         );
     }
 

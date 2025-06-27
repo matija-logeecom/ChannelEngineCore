@@ -4,6 +4,8 @@ namespace ChannelEngineCore\Infrastructure;
 
 use ChannelEngine\BusinessLogic\BootstrapComponent as BusinessLogicBootstrap;
 use ChannelEngine\BusinessLogic\Products\Contracts\ProductsService;
+use ChannelEngine\BusinessLogic\Products\Entities\ProductEvent;
+use ChannelEngine\BusinessLogic\Products\Listeners\TickEventListener;
 use ChannelEngine\BusinessLogic\TransactionLog\Entities\Details;
 use ChannelEngine\BusinessLogic\TransactionLog\Entities\TransactionLog;
 use ChannelEngine\Infrastructure\Configuration\Configuration;
@@ -14,8 +16,11 @@ use ChannelEngine\Infrastructure\ORM\RepositoryRegistry;
 use ChannelEngine\Infrastructure\Serializer\Concrete\JsonSerializer;
 use ChannelEngine\Infrastructure\Serializer\Serializer;
 use ChannelEngine\Infrastructure\ServiceRegister;
+use ChannelEngine\Infrastructure\TaskExecution\Exceptions\QueueStorageUnavailableException;
 use ChannelEngine\Infrastructure\TaskExecution\Process;
 use ChannelEngine\Infrastructure\TaskExecution\QueueItem;
+use ChannelEngine\Infrastructure\TaskExecution\TaskEvents\TickEvent;
+use ChannelEngine\Infrastructure\Utility\Events\EventBus;
 use ChannelEngineCore\Service\PrestaShopProductsService;
 use ChannelEngineCore\Infrastructure\Configuration\PrestaShopConfigService;
 use ChannelEngineCore\Infrastructure\Logger\PrestaShopLoggerAdapter;
@@ -127,5 +132,33 @@ class Bootstrap extends BusinessLogicBootstrap
             Details::CLASS_NAME,
             GenericEntityRepository::getClassName()
         );
+        RepositoryRegistry::registerRepository(
+            ProductEvent::CLASS_NAME,
+            GenericEntityRepository::getClassName()
+        );
+    }
+
+    /**
+     * Initializes events.
+     */
+    protected static function initEvents(): void
+    {
+        parent::initEvents();
+
+        $eventBus = ServiceRegister::getService(EventBus::CLASS_NAME);
+
+        try {
+            $eventBus->when(TickEvent::class, function() {
+                TickEventListener::handle();
+            });
+        } catch (QueueStorageUnavailableException $e) {
+            PrestaShopLogger::addLog(
+                'TickEventListener failed to initialize ' . $e->getMessage(),
+                4,
+                null,
+                'ChannelEngine'
+            );
+            throw $e;
+        }
     }
 }

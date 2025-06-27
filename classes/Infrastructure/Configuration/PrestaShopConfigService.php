@@ -4,8 +4,8 @@ namespace ChannelEngineCore\Infrastructure\Configuration;
 
 use ChannelEngine\BusinessLogic\Configuration\ConfigService;
 use ChannelEngine\BusinessLogic\Configuration\DTO\SystemInfo;
+use ChannelEngine\Infrastructure\Logger\Logger;
 use Context;
-use PrestaShopLogger;
 use Tools;
 
 class PrestaShopConfigService extends ConfigService
@@ -44,11 +44,9 @@ class PrestaShopConfigService extends ConfigService
             ['guid' => $guid]
         );
 
-        PrestaShopLogger::addLog(
+        Logger::logInfo(
             'Generated async process URL: ' . $url,
-            1,
-            null,
-            'ChannelEngine'
+            'PrestaShopConfigService'
         );
 
         return $url;

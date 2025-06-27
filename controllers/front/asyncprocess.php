@@ -1,16 +1,4 @@
 <?php
-/**
- * 2025 ChannelEngine
- *
- * NOTICE OF LICENSE
- *
- * This source file is subject to the license
- * that is bundled with this package in the file LICENSE.
- *
- * @author    ChannelEngine <support@channelengine.com>
- * @copyright 2025 ChannelEngine
- * @license   Licensed under applicable license
- */
 
 if (!defined('_PS_VERSION_')) {
     exit;

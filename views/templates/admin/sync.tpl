@@ -20,7 +20,6 @@
 </div>
 
 <script type="text/javascript">
-    // Pass initial sync status to JavaScript
     {if isset($sync_status_json)}
     window.channelEngineInitialSyncStatus = {$sync_status_json|escape:'javascript':'UTF-8'|json_decode:true|json_encode nofilter};
     {else}

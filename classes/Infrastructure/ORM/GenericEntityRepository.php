@@ -214,6 +214,44 @@ class GenericEntityRepository implements RepositoryInterface
     }
 
     /**
+     * Batch delete entities
+     *
+     * @param Entity[] $entities
+     *
+     * @return bool
+     */
+    public function batchDelete(array $entities): bool
+    {
+        if (empty($entities)) {
+            return true;
+        }
+
+        $ids = [];
+        foreach ($entities as $entity) {
+            if ($entity->getId()) {
+                $ids[] = (int)$entity->getId();
+            }
+        }
+
+        if (empty($ids)) {
+            return true;
+        }
+
+        $idsString = implode(',', $ids);
+        $result = Db::getInstance()->delete(static::TABLE_NAME, "id IN ({$idsString})");
+
+        if (!$result) {
+            Logger::logError(
+                'Could not batch delete entities.',
+                'Core',
+                ['entity_count' => count($entities), 'ids' => $idsString]
+            );
+        }
+
+        return $result;
+    }
+
+    /**
      * Translates database records to ChannelEngine entities.
      *
      * @param array $records Array of database records.

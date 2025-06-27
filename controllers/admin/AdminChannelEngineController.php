@@ -4,12 +4,12 @@ use ChannelEngine\BusinessLogic\Authorization\Contracts\AuthorizationService;
 use ChannelEngine\BusinessLogic\Authorization\DTO\AuthInfo;
 use ChannelEngine\BusinessLogic\Authorization\Exceptions\CurrencyMismatchException;
 use ChannelEngine\BusinessLogic\InitialSync\ProductSync;
+use ChannelEngine\Infrastructure\Logger\Logger;
 use ChannelEngine\Infrastructure\ServiceRegister;
 use ChannelEngine\Infrastructure\TaskExecution\Interfaces\TaskRunnerWakeup;
 use ChannelEngine\Infrastructure\TaskExecution\QueueService;
 use ChannelEngine\Infrastructure\TaskExecution\QueueItem;
 use ChannelEngine\Infrastructure\TaskExecution\Interfaces\Priority;
-use ChannelEngine\Infrastructure\TaskExecution\TaskRunnerWakeupService;
 
 class AdminChannelEngineController extends ModuleAdminController
 {
@@ -155,7 +155,7 @@ class AdminChannelEngineController extends ModuleAdminController
                 'Invalid credentials - please check your account name and API key'];
 
         } catch (Throwable $e) {
-            PrestaShopLogger::addLog('ChannelEngine connection error: ' . $e->getMessage(), 3);
+            Logger::logError('ChannelEngine connection error: ' . $e->getMessage(), 3);
             return ['success' => false, 'message' => 'Connection failed - please check your credentials and try again'];
         }
     }
@@ -223,11 +223,9 @@ class AdminChannelEngineController extends ModuleAdminController
                 Priority::HIGH
             );
 
-            PrestaShopLogger::addLog(
+            Logger::logInfo(
                 'Manual product sync initiated. Queue Item ID: ' . $queueItem->getId(),
-                1,
-                null,
-                'ChannelEngine'
+                'AdminController'
             );
 
             return [
@@ -237,11 +235,9 @@ class AdminChannelEngineController extends ModuleAdminController
             ];
 
         } catch (Throwable $e) {
-            PrestaShopLogger::addLog(
+            Logger::logError(
                 'Failed to start manual sync: ' . $e->getMessage(),
-                3,
-                null,
-                'ChannelEngine'
+                'AdminController'
             );
 
             return [
