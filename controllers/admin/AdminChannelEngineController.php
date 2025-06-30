@@ -4,6 +4,7 @@ use ChannelEngine\BusinessLogic\Authorization\Contracts\AuthorizationService;
 use ChannelEngine\BusinessLogic\Authorization\DTO\AuthInfo;
 use ChannelEngine\BusinessLogic\Authorization\Exceptions\CurrencyMismatchException;
 use ChannelEngine\BusinessLogic\InitialSync\ProductSync;
+use ChannelEngine\BusinessLogic\Webhooks\Contracts\WebhooksService;
 use ChannelEngine\Infrastructure\Logger\Logger;
 use ChannelEngine\Infrastructure\ServiceRegister;
 use ChannelEngine\Infrastructure\TaskExecution\Interfaces\TaskRunnerWakeup;
@@ -51,7 +52,7 @@ class AdminChannelEngineController extends ModuleAdminController
 
             $action = $data['action'] ?? Tools::getValue('action', 'status');
 
-            $response = match($action) {
+            $response = match ($action) {
                 'connect' => $this->processConnection($data),
                 'disconnect' => $this->processDisconnection(),
                 'status' => $this->getConnectionStatus(),
@@ -169,6 +170,9 @@ class AdminChannelEngineController extends ModuleAdminController
 
             $authService->validateAccountInfo($apiKey, $accountName, $currency->iso_code);
             $authService->setAuthInfo(new AuthInfo($accountName, $apiKey));
+
+            $this->setupWebhooks();
+
             ServiceRegister::getService(TaskRunnerWakeup::CLASS_NAME)->wakeup();
 
             return ['success' => true, 'message' => 'Connected successfully'];
@@ -192,6 +196,37 @@ class AdminChannelEngineController extends ModuleAdminController
 
             return ['success' => false,
                 'message' => 'Connection failed - please check your credentials and try again'];
+        }
+    }
+
+    /**
+     * Setup webhooks after successful connection
+     */
+    private function setupWebhooks(): void
+    {
+        try {
+            $webhooksService = ServiceRegister::getService(WebhooksService::class);
+
+            // Create webhook token first
+            $webhooksService->createWebhookToken();
+
+            // Create the webhook on ChannelEngine
+            $webhooksService->create();
+
+            Logger::logInfo(
+                'Webhooks setup completed successfully',
+                'AdminController'
+            );
+        } catch (Throwable $e) {
+            // Log error but don't fail the connection process
+            Logger::logError(
+                'Failed to setup webhooks: ' . $e->getMessage(),
+                'AdminController',
+                [
+                    'exception' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]
+            );
         }
     }
 

@@ -3,11 +3,16 @@
 namespace ChannelEngineCore\Infrastructure;
 
 use ChannelEngine\BusinessLogic\BootstrapComponent as BusinessLogicBootstrap;
+use ChannelEngine\BusinessLogic\Orders\ChannelSupport\OrdersChannelSupportEntity;
+use ChannelEngine\BusinessLogic\Orders\Configuration\OrdersConfigEntity;
+use ChannelEngine\BusinessLogic\Orders\Configuration\OrderSyncConfig;
+use ChannelEngine\BusinessLogic\Orders\Contracts\OrdersService;
 use ChannelEngine\BusinessLogic\Products\Contracts\ProductsService;
 use ChannelEngine\BusinessLogic\Products\Entities\ProductEvent;
 use ChannelEngine\BusinessLogic\Products\Listeners\TickEventListener;
 use ChannelEngine\BusinessLogic\TransactionLog\Entities\Details;
 use ChannelEngine\BusinessLogic\TransactionLog\Entities\TransactionLog;
+use ChannelEngine\BusinessLogic\Webhooks\Contracts\WebhooksService;
 use ChannelEngine\Infrastructure\Configuration\ConfigEntity;
 use ChannelEngine\Infrastructure\Configuration\Configuration;
 use ChannelEngine\Infrastructure\Logger\Interfaces\ShopLoggerAdapter;
@@ -21,7 +26,9 @@ use ChannelEngine\Infrastructure\TaskExecution\Process;
 use ChannelEngine\Infrastructure\TaskExecution\QueueItem;
 use ChannelEngine\Infrastructure\TaskExecution\TaskEvents\TickEvent;
 use ChannelEngine\Infrastructure\Utility\Events\EventBus;
+use ChannelEngineCore\Business\Service\PrestaShopOrdersService;
 use ChannelEngineCore\Business\Service\PrestaShopProductsService;
+use ChannelEngineCore\Business\Service\PrestaShopWebhooksService;
 use ChannelEngineCore\Infrastructure\Configuration\PrestaShopConfigService;
 use ChannelEngineCore\Infrastructure\Logger\PrestaShopLoggerAdapter;
 use ChannelEngineCore\Infrastructure\ORM\GenericEntityRepository;
@@ -83,6 +90,18 @@ class Bootstrap extends BusinessLogicBootstrap
                 return new PrestaShopProductsService();
             }
         );
+        ServiceRegister::registerService(
+            WebhooksService::class,
+            function() {
+                return new PrestaShopWebhooksService();
+            }
+        );
+        ServiceRegister::registerService(
+            OrdersService::class,
+            function() {
+                return new PrestaShopOrdersService();
+            }
+        );
     }
 
     /**
@@ -116,6 +135,18 @@ class Bootstrap extends BusinessLogicBootstrap
         );
         RepositoryRegistry::registerRepository(
             ProductEvent::CLASS_NAME,
+            GenericEntityRepository::getClassName()
+        );
+        RepositoryRegistry::registerRepository(
+            OrderSyncConfig::CLASS_NAME,
+            GenericEntityRepository::getClassName()
+        );
+        RepositoryRegistry::registerRepository(
+            OrdersConfigEntity::CLASS_NAME,
+            GenericEntityRepository::getClassName()
+        );
+        RepositoryRegistry::registerRepository(
+            OrdersChannelSupportEntity::CLASS_NAME,
             GenericEntityRepository::getClassName()
         );
     }
