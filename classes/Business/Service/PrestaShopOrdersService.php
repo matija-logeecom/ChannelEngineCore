@@ -8,14 +8,16 @@ use ChannelEngine\BusinessLogic\Orders\OrdersService;
 use ChannelEngine\BusinessLogic\API\Orders\DTO\Order as ChannelEngineOrder;
 use ChannelEngine\BusinessLogic\Orders\Domain\CreateResponse;
 use ChannelEngine\Infrastructure\Logger\Logger;
+use ChannelEngineCore\Business\DTO\PrestaShopOrder;
+use ChannelEngineCore\Business\DTO\PrestaShopOrderDetail;
 use Cart;
 use Configuration;
 use Context;
 use Country;
 use Currency;
 use Customer;
-use Order as PrestaShopOrder;
-use OrderDetail;
+use Exception;
+use Order as PrestaShopOrderEntity;
 use OrderHistory;
 use PrestaShopDatabaseException;
 use PrestaShopException;
@@ -23,416 +25,733 @@ use Product;
 use State;
 use Tools;
 use Validate;
-/**
- * PrestaShop OrdersService implementation
- */
+
 class PrestaShopOrdersService extends OrdersService
 {
     /**
      * Creates new orders in the shop system and returns CreateResponse.
      *
      * @param ChannelEngineOrder $order
+     *
      * @return CreateResponse
      */
     public function create(ChannelEngineOrder $order): CreateResponse
     {
         try {
-            // Check if order already exists
-            $existingOrder = $this->findExistingOrder($order);
+            $prestaShopOrder = PrestaShopOrder::fromChannelEngineOrder($order);
 
-            if ($existingOrder) {
-                return $this->updateExistingOrder($existingOrder, $order);
-            } else {
-                return $this->createNewOrder($order);
+            $validationErrors = $prestaShopOrder->validate();
+            if (!empty($validationErrors)) {
+                return $this->createErrorResponse('Order validation failed: ' . implode(', ', $validationErrors));
             }
-        } catch (\Exception $e) {
+
+            $existingOrder = $this->findExistingOrder($prestaShopOrder);
+            if ($existingOrder) {
+                return $this->updateExistingOrder($existingOrder, $prestaShopOrder);
+            }
+
+            return $this->createNewOrder($prestaShopOrder);
+
+        } catch (Exception $e) {
             Logger::logError(
                 "Failed to create/update order {$order->getId()}: " . $e->getMessage(),
                 'PrestaShopOrdersService',
                 [
                     'channelengine_order_id' => $order->getId(),
                     'channel_order_no' => $order->getChannelOrderNo(),
-                    'exception' => $e->getMessage()
+                    'exception_type' => get_class($e),
+                    'stack_trace' => $e->getTraceAsString()
                 ]
             );
 
-            return new CreateResponse(false, $e->getMessage());
+            return $this->createErrorResponse($e->getMessage());
         }
     }
 
     /**
      * Find existing PrestaShop order by ChannelEngine order data
      *
-     * @param ChannelEngineOrder $channelEngineOrder
-     * @return PrestaShopOrder|null
+     * @param PrestaShopOrder $prestaShopOrder
      *
-     * @throws PrestaShopDatabaseException
-     * @throws PrestaShopException
+     * @return PrestaShopOrderEntity|null
      */
-    private function findExistingOrder(ChannelEngineOrder $channelEngineOrder): ?PrestaShopOrder
+    private function findExistingOrder(PrestaShopOrder $prestaShopOrder): ?PrestaShopOrderEntity
     {
-        // Convert to short reference format for searching
-        $shortReference = $this->getShortReference($channelEngineOrder->getChannelOrderNo());
+        try {
+            $shortReference = $prestaShopOrder->getShortReference();
+            $orders = PrestaShopOrderEntity::getByReference($shortReference);
 
-        // Try to find by short reference
-        $orders = PrestaShopOrder::getByReference($shortReference);
+            if ($orders && $orders->count() > 0) {
+                $firstOrder = $orders->getFirst();
+                if (!$firstOrder || !isset($firstOrder['id_order'])) {
+                    return null;
+                }
+                return new PrestaShopOrderEntity($firstOrder['id_order']);
+            }
 
-        if ($orders && $orders->count() > 0) {
-            $firstOrder = $orders->getFirst();
-            return new PrestaShopOrder($firstOrder['id_order']);
+            return null;
+        } catch (Exception $e) {
+            Logger::logError(
+                "Error finding existing order: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'channel_order_no' => $prestaShopOrder->getChannelOrderNo(),
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
+
+            return null;
         }
-
-        return null;
     }
 
     /**
      * Create new PrestaShop order from ChannelEngine order
      *
-     * @param ChannelEngineOrder $channelEngineOrder
-     * @return CreateResponse
+     * @param PrestaShopOrder $prestaShopOrder
      *
-     * @throws PrestaShopDatabaseException
-     * @throws PrestaShopException
+     * @return CreateResponse
      */
-    private function createNewOrder(ChannelEngineOrder $channelEngineOrder): CreateResponse
+    private function createNewOrder(PrestaShopOrder $prestaShopOrder): CreateResponse
     {
-        $context = Context::getContext();
+        try {
+            $customer = $this->findOrCreateCustomer($prestaShopOrder);
+            $cart = $this->createCartFromOrder($prestaShopOrder, $customer);
+            $order = $this->buildPrestaShopOrder($prestaShopOrder, $customer, $cart);
 
-        // 1. Find or create customer
-        $customer = $this->findOrCreateCustomer($channelEngineOrder);
+            if (!$order->add()) {
+                throw new Exception("Failed to create order in PrestaShop");
+            }
 
-        // 2. Create cart
-        $cart = $this->createCartFromOrder($channelEngineOrder, $customer);
+            $this->addOrderDetails($order, $prestaShopOrder);
+            $this->setOrderState($order, $prestaShopOrder);
 
-        // 3. Get payment method
-        $paymentMethod = $channelEngineOrder->getPaymentMethod() ?: 'ChannelEngine';
+            Logger::logInfo(
+                "Created PrestaShop order {$order->id} " .
+                "from ChannelEngine order {$prestaShopOrder->getChannelEngineOrderId()}",
+                'PrestaShopOrdersService'
+            );
 
-        // 4. Get currency
-        $currency = Currency::getIdByIsoCode($channelEngineOrder->getCurrencyCode());
-        if (!$currency) {
-            $currency = (int)Configuration::get('PS_CURRENCY_DEFAULT');
+            return $this->createSuccessResponse("Order created successfully", $order->reference);
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to create new order: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'channelengine_order_id' => $prestaShopOrder->getChannelEngineOrderId(),
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
+
+            return $this->createErrorResponse($e->getMessage());
         }
+    }
 
-        // 5. Get order state
-        $orderState = $this->getOrderStateFromChannelEngineStatus($channelEngineOrder->getStatus());
+    /**
+     * Build PrestaShop order object with all required fields
+     *
+     * @param PrestaShopOrder $prestaShopOrder
+     * @param Customer $customer
+     * @param Cart $cart
+     *
+     * @return PrestaShopOrderEntity
+     *
+     * @throws Exception
+     */
+    private function buildPrestaShopOrder(PrestaShopOrder $prestaShopOrder,
+                                          Customer $customer, Cart $cart): PrestaShopOrderEntity
+    {
+        try {
+            $context = Context::getContext();
 
-        // 6. Calculate totals
-        $totalPaid = $channelEngineOrder->getTotalInclVat();
-        $totalShipping = $channelEngineOrder->getShippingCostsInclVat();
+            $billingAddressId = $this->createAddress($prestaShopOrder->getBillingAddress(), $customer);
+            $shippingAddressId = $this->createAddress($prestaShopOrder->getShippingAddress(), $customer);
+            $currencyId = $this->getCurrencyId($prestaShopOrder->getCurrencyCode());
+            $carrierId = $this->getDefaultCarrierId($context);
+            $orderStateId = $this->getOrderStateFromChannelEngineStatus($prestaShopOrder->getStatus());
 
-        // 7. Create addresses
-        $billingAddressId = $this->createAddress($channelEngineOrder->getBillingAddress(), $customer);
-        $shippingAddressId = $this->createAddress($channelEngineOrder->getShippingAddress(), $customer);
-
-        $defaultCarrierId = (int)Configuration::get('PS_CARRIER_DEFAULT');
-        if (!$defaultCarrierId) {
-            // Fallback: get any active carrier
-            $carriers = Carrier::getCarriers((int)$context->language->id, true);
-            $defaultCarrierId = !empty($carriers) ? (int)$carriers[0]['id_carrier'] : 1;
+            return $prestaShopOrder->toPrestaShopOrderEntity(
+                $cart->id,
+                $customer->id,
+                $currencyId,
+                $context->language->id,
+                $context->shop->id,
+                $shippingAddressId,
+                $billingAddressId,
+                $carrierId,
+                $orderStateId
+            );
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to build PrestaShop order: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'channelengine_order_id' => $prestaShopOrder->getChannelEngineOrderId(),
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
+            throw $e;
         }
+    }
 
-        $channelOrderNo = $channelEngineOrder->getChannelOrderNo(); // "CE-TEST-52254"
-        $orderNumber = str_replace('CE-TEST-', '', $channelOrderNo); // "52254"
+    /**
+     * Get currency ID by ISO code
+     *
+     * @param string $currencyCode
+     *
+     * @return int
+     */
+    private function getCurrencyId(string $currencyCode): int
+    {
+        try {
+            $currency = Currency::getIdByIsoCode($currencyCode);
+            if (!$currency) {
+                $currency = (int)Configuration::get('PS_CURRENCY_DEFAULT');
+            }
 
-        // 8. Create the PrestaShop order
-        $order = new PrestaShopOrder();
-        $order->id_cart = $cart->id;
-        $order->id_customer = $customer->id;
-        $order->id_currency = $currency;
-        $order->id_lang = $context->language->id;
-        $order->id_shop = $context->shop->id;
-        $order->id_address_delivery = $shippingAddressId;
-        $order->id_address_invoice = $billingAddressId;
-        $order->id_carrier = $defaultCarrierId;
-        $order->module = 'channelenginecore';
-        $order->reference = $this->getShortReference($channelEngineOrder->getChannelOrderNo());        $order->payment = $paymentMethod;
-        $order->total_paid = $totalPaid;
-        $order->total_paid_tax_incl = $totalPaid;
-        $order->total_paid_tax_excl = $totalPaid - ($channelEngineOrder->getTotalVat() ?: 0);
-        $order->total_paid_real = $totalPaid;
-        $order->total_products = $channelEngineOrder->getSubTotalInclVat() ?: 0;
-        $order->total_products_wt = $channelEngineOrder->getSubTotalInclVat() ?: 0;
-        $order->total_shipping = $totalShipping;
-        $order->total_shipping_tax_incl = $totalShipping;
-        $order->total_shipping_tax_excl = $totalShipping - ($channelEngineOrder->getShippingCostsVat() ?: 0);
-        $order->conversion_rate = 1;
-        $order->date_add = $channelEngineOrder->getOrderDate()->format('Y-m-d H:i:s');
-        $order->current_state = $orderState;
-        $order->secure_key = md5(uniqid(rand(), true));
+            return $currency;
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to get currency ID: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'currency_code' => $currencyCode,
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
 
-        if ($order->add()) {
-            // 9. Add order details (line items)
-            $this->addOrderDetails($order, $channelEngineOrder);
+            return (int)Configuration::get('PS_CURRENCY_DEFAULT');
+        }
+    }
 
-            // 10. Set order state history
+    /**
+     * Get default carrier ID
+     *
+     * @param Context $context
+     *
+     * @return int
+     */
+    private function getDefaultCarrierId(Context $context): int
+    {
+        try {
+            $defaultCarrierId = (int)Configuration::get('PS_CARRIER_DEFAULT');
+            if (!$defaultCarrierId) {
+                $carriers = Carrier::getCarriers((int)$context->language->id, true);
+                $defaultCarrierId = !empty($carriers) ? (int)$carriers[0]['id_carrier'] : 1;
+            }
+
+            return $defaultCarrierId;
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to get default carrier ID: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
+
+            return 1;
+        }
+    }
+
+    /**
+     * Set order state history
+     *
+     * @param PrestaShopOrderEntity $order
+     * @param PrestaShopOrder $prestaShopOrder
+     */
+    private function setOrderState(PrestaShopOrderEntity $order, PrestaShopOrder $prestaShopOrder): void
+    {
+        try {
+            $orderState = $this->getOrderStateFromChannelEngineStatus($prestaShopOrder->getStatus());
             $orderHistory = new OrderHistory();
             $orderHistory->id_order = $order->id;
             $orderHistory->changeIdOrderState($orderState, $order->id);
             $orderHistory->addWithemail();
-
-            Logger::logInfo(
-                "Created PrestaShop order {$order->id} from ChannelEngine order {$channelEngineOrder->getId()}",
-                'PrestaShopOrdersService'
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to set order state: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'order_id' => $order->id,
+                    'target_state' => $prestaShopOrder->getStatus(),
+                    'stack_trace' => $e->getTraceAsString()
+                ]
             );
-
-            $createResponse = new CreateResponse();
-            $createResponse->setSuccess(true);
-            $createResponse->setMessage("Order created successfully");
-            $createResponse->setShopOrderId($order->reference);
-
-            return $createResponse;
-        } else {
-            $createResponse = new CreateResponse();
-            $createResponse->setSuccess(false);
-            $createResponse->setMessage("Failed to create order in PrestaShop");
-            $createResponse->setShopOrderId($order->reference);
-
-            return $createResponse;
         }
     }
 
     /**
      * Find or create customer from ChannelEngine order
      *
-     * @param ChannelEngineOrder $channelEngineOrder
+     * @param PrestaShopOrder $prestaShopOrder
+     *
+     * @return Customer
+     *
+     * @throws Exception
+     */
+    private function findOrCreateCustomer(PrestaShopOrder $prestaShopOrder): Customer
+    {
+        try {
+            $email = $prestaShopOrder->getEmail();
+            $customer = new Customer();
+            $customer->getByEmail($email);
+
+            if (!Validate::isLoadedObject($customer)) {
+                $customer = $this->createNewCustomer($prestaShopOrder, $email);
+            }
+
+            return $customer;
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to find or create customer: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'email' => $prestaShopOrder->getEmail(),
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
+            throw $e;
+        }
+    }
+
+    /**
+     * Create new customer
+     *
+     * @param PrestaShopOrder $prestaShopOrder
+     * @param string $email
      *
      * @return Customer
      *
      * @throws PrestaShopDatabaseException
      * @throws PrestaShopException
      */
-    private function findOrCreateCustomer(ChannelEngineOrder $channelEngineOrder): Customer
+    private function createNewCustomer(PrestaShopOrder $prestaShopOrder, string $email): Customer
     {
-        $email = $channelEngineOrder->getEmail();
-        $customer = new Customer();
-        $customer->getByEmail($email);
+        try {
+            $billingAddress = $prestaShopOrder->getBillingAddress();
 
-        if (!Validate::isLoadedObject($customer)) {
-            // Create new customer
-            $billingAddress = $channelEngineOrder->getBillingAddress();
-
+            $customer = new Customer();
             $customer->email = $email;
-            $customer->firstname = $billingAddress->getFirstName() ?: 'ChannelEngine';
-            $customer->lastname = $billingAddress->getLastName() ?: 'Customer';
-
-            // FIX: Generate a stronger password and hash it properly
-            $plainPassword = Tools::passwdGen(12); // Longer password
-            $customer->passwd = Tools::hash($plainPassword); // Hash the password
-
+            $customer->firstname = $billingAddress['firstName'];
+            $customer->lastname = $billingAddress['lastName'];
+            $customer->passwd = Tools::hash(Tools::passwdGen(12));
             $customer->active = 1;
-            $customer->add();
-        }
 
-        return $customer;
+            if (!$customer->add()) {
+                throw new Exception("Failed to create customer for email: $email");
+            }
+
+            return $customer;
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to create new customer: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'email' => $email,
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
+            throw $e;
+        }
     }
 
     /**
-     * Create address from ChannelEngine address data
+     * Create address from address data array
      *
-     * @param $addressData
+     * @param array $addressData
      * @param Customer $customer
+     *
+     * @return int
+     *
+     * @throws Exception
+     */
+    private function createAddress(array $addressData, Customer $customer): int
+    {
+        try {
+            $address = new Address();
+            $address->id_customer = $customer->id;
+            $address->firstname = $addressData['firstName'];
+            $address->lastname = $addressData['lastName'];
+            $address->company = $addressData['companyName'];
+            $address->address1 = $addressData['streetName'] . ' ' . $addressData['houseNumber'];
+            $address->address2 = $addressData['houseNumberAddition'];
+            $address->postcode = $addressData['zipCode'];
+            $address->city = $addressData['city'];
+            $address->phone = '';
+            $address->id_country = $this->getCountryId($addressData['countryIso']);
+            $address->id_state = $this->getStateId($addressData['region']);
+            $address->alias = 'ChannelEngine';
+
+            if (!$address->add()) {
+                throw new Exception("Failed to create address for customer {$customer->id}");
+            }
+
+            return $address->id;
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to create address: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'customer_id' => $customer->id,
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
+            throw $e;
+        }
+    }
+
+    /**
+     * Get country ID by ISO code
+     *
+     * @param string $countryIso
+     *
      * @return int
      */
-    private function createAddress($addressData, Customer $customer): int
+    private function getCountryId(string $countryIso): int
     {
-        $address = new Address();
-        $address->id_customer = $customer->id;
-        $address->firstname = $addressData->getFirstName() ?: 'ChannelEngine';
-        $address->lastname = $addressData->getLastName() ?: 'Customer';
-        $address->company = $addressData->getCompanyName() ?: '';
+        try {
+            $countryId = Country::getByIso($countryIso);
 
-        // FIX: Use correct method names
-        $address->address1 = $addressData->getStreetName() . ' ' . $addressData->getHouseNumber();
-        $address->address2 = $addressData->getHouseNumberAddition() ?: '';
+            return $countryId ?: (int)Configuration::get('PS_COUNTRY_DEFAULT');
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to get country ID: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'country_iso' => $countryIso,
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
 
-        $address->postcode = $addressData->getZipCode() ?: '';
-        $address->city = $addressData->getCity() ?: '';
-        $address->phone = ''; // Phone is not in the Address DTO, it's in the Order
+            return (int)Configuration::get('PS_COUNTRY_DEFAULT');
+        }
+    }
 
-        // Try to find country by ISO code
-        $countryId = Country::getByIso($addressData->getCountryIso());
-        $address->id_country = $countryId ?: (int)Configuration::get('PS_COUNTRY_DEFAULT');
-
-        // Try to find state if provided
-        if ($addressData->getRegion()) {
-            $stateId = State::getIdByName($addressData->getRegion());
-            $address->id_state = $stateId ?: 0;
+    /**
+     * Get state ID by name
+     *
+     * @param string|null $region
+     *
+     * @return int
+     */
+    private function getStateId(?string $region): int
+    {
+        if (!$region) {
+            return 0;
         }
 
-        $address->alias = 'ChannelEngine';
-        $address->add();
+        try {
+            $stateId = State::getIdByName($region);
 
-        return $address->id;
+            return $stateId ?: 0;
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to get state ID: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'region' => $region,
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
+
+            return 0;
+        }
     }
 
     /**
      * Create cart from ChannelEngine order
      *
-     * @param ChannelEngineOrder $channelEngineOrder
+     * @param PrestaShopOrder $prestaShopOrder
      * @param Customer $customer
+     *
      * @return Cart
      *
      * @throws PrestaShopDatabaseException
      * @throws PrestaShopException
      */
-    private function createCartFromOrder(ChannelEngineOrder $channelEngineOrder, Customer $customer): Cart
+    private function createCartFromOrder(PrestaShopOrder $prestaShopOrder, Customer $customer): Cart
     {
-        $context = Context::getContext();
+        try {
+            $context = Context::getContext();
 
-        $cart = new Cart();
-        $cart->id_customer = $customer->id;
-        $cart->id_currency = Currency::getIdByIsoCode($channelEngineOrder->getCurrencyCode()) ?: (int)Configuration::get('PS_CURRENCY_DEFAULT');
-        $cart->id_lang = $context->language->id;
-        $cart->id_shop = $context->shop->id;
-        $cart->add();
+            $cart = new Cart();
+            $cart->id_customer = $customer->id;
+            $cart->id_currency = Currency::getIdByIsoCode($prestaShopOrder->getCurrencyCode()) ?:
+                (int)Configuration::get('PS_CURRENCY_DEFAULT');
+            $cart->id_lang = $context->language->id;
+            $cart->id_shop = $context->shop->id;
 
-        // Add products to cart
-        foreach ($channelEngineOrder->getLines() as $lineItem) {
-            $productId = $this->findProductByMerchantProductNo($lineItem->getMerchantProductNo());
-            if ($productId) {
-                $cart->updateQty(
-                    $lineItem->getQuantity(),
-                    $productId,
-                    null, // id_product_attribute
-                    false, // add/subtract
-                    'up' // type
+            if (!$cart->add()) {
+                throw new Exception("Failed to create cart for customer {$customer->id}");
+            }
+
+            $this->addProductsToCart($cart, $prestaShopOrder);
+            $cart->update();
+
+            return $cart;
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to create cart: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'customer_id' => $customer->id,
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
+            throw $e;
+        }
+    }
+
+    /**
+     * Add products to cart
+     *
+     * @param Cart $cart
+     * @param PrestaShopOrder $prestaShopOrder
+     */
+    private function addProductsToCart(Cart $cart, PrestaShopOrder $prestaShopOrder): void
+    {
+        foreach ($prestaShopOrder->getLineItems() as $lineItem) {
+            try {
+                $productId = $this->findProductByMerchantProductNo($lineItem->getMerchantProductNo());
+                if ($productId) {
+                    $cart->updateQty(
+                        $lineItem->getQuantity(),
+                        $productId,
+                        null,
+                        false,
+                        'up'
+                    );
+                } else {
+                    Logger::logWarning(
+                        "Product not found for merchant product no: {$lineItem->getMerchantProductNo()}",
+                        'PrestaShopOrdersService',
+                        ['cart_id' => $cart->id]
+                    );
+                }
+            } catch (Exception $e) {
+                Logger::logError(
+                    "Failed to add product to cart: " . $e->getMessage(),
+                    'PrestaShopOrdersService',
+                    [
+                        'cart_id' => $cart->id,
+                        'merchant_product_no' => $lineItem->getMerchantProductNo(),
+                        'stack_trace' => $e->getTraceAsString()
+                    ]
                 );
             }
         }
-
-        $cart->update();
-        return $cart;
     }
 
     /**
      * Find PrestaShop product ID by merchant product number
      *
      * @param string $merchantProductNo
+     *
      * @return int|null
      */
     private function findProductByMerchantProductNo(string $merchantProductNo): ?int
     {
-        // Assuming merchant product number matches PrestaShop product ID
-        $productId = (int)$merchantProductNo;
-        $product = new Product($productId);
+        try {
+            $productId = (int)$merchantProductNo;
+            $product = new Product($productId);
 
-        if (Validate::isLoadedObject($product)) {
-            return $productId;
+            if (Validate::isLoadedObject($product)) {
+                return $productId;
+            }
+
+            return null;
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to find product: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'merchant_product_no' => $merchantProductNo,
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
+
+            return null;
         }
-
-        return null;
     }
 
     /**
      * Map ChannelEngine status to PrestaShop order state
      *
      * @param string $channelEngineStatus
+     *
      * @return int
      */
     private function getOrderStateFromChannelEngineStatus(string $channelEngineStatus): int
     {
-        return match($channelEngineStatus) {
-            'IN_PROGRESS' => Configuration::get('PS_OS_PREPARATION'),
-            'SHIPPED' => Configuration::get('PS_OS_SHIPPING'),
-            'CLOSED' => Configuration::get('PS_OS_DELIVERED'),
-            'CANCELED' => Configuration::get('PS_OS_CANCELED'),
-            'RETURNED' => Configuration::get('PS_OS_REFUND'),
-            default => Configuration::get('PS_OS_PAYMENT')
-        };
+        try {
+            return match($channelEngineStatus) {
+                'IN_PROGRESS' => Configuration::get('PS_OS_PREPARATION'),
+                'SHIPPED' => Configuration::get('PS_OS_SHIPPING'),
+                'CLOSED' => Configuration::get('PS_OS_DELIVERED'),
+                'CANCELED' => Configuration::get('PS_OS_CANCELED'),
+                'RETURNED' => Configuration::get('PS_OS_REFUND'),
+                default => Configuration::get('PS_OS_PAYMENT')
+            };
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to get order state: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'channel_engine_status' => $channelEngineStatus,
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
+
+            return Configuration::get('PS_OS_PAYMENT');
+        }
     }
 
     /**
      * Add order details (line items) to PrestaShop order
      *
-     * @param PrestaShopOrder $order
-     * @param ChannelEngineOrder $channelEngineOrder
-     * @throws PrestaShopDatabaseException
-     * @throws PrestaShopException
+     * @param PrestaShopOrderEntity $order
+     * @param PrestaShopOrder $prestaShopOrder
      */
-    private function addOrderDetails(PrestaShopOrder $order, ChannelEngineOrder $channelEngineOrder): void
+    private function addOrderDetails(PrestaShopOrderEntity $order, PrestaShopOrder $prestaShopOrder): void
     {
-        $context = Context::getContext();
+        try {
+            $context = Context::getContext();
 
-        foreach ($channelEngineOrder->getLines() as $lineItem) {
+            foreach ($prestaShopOrder->getLineItems() as $lineItem) {
+                $this->createOrderDetail($order, $lineItem, $context);
+            }
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to add order details: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'order_id' => $order->id,
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
+        }
+    }
+
+    /**
+     * Create single order detail
+     *
+     * @param PrestaShopOrderEntity $order
+     * @param PrestaShopOrderDetail $lineItem
+     * @param Context $context
+     */
+    private function createOrderDetail(PrestaShopOrderEntity $order,
+                                       PrestaShopOrderDetail $lineItem, Context $context): void
+    {
+        try {
             $productId = $this->findProductByMerchantProductNo($lineItem->getMerchantProductNo());
 
-            if ($productId) {
-                $product = new Product($productId);
+            if (!$productId) {
+                Logger::logWarning(
+                    "Product not found for merchant product no: {$lineItem->getMerchantProductNo()}",
+                    'PrestaShopOrdersService',
+                    ['order_id' => $order->id]
+                );
 
-                $orderDetail = new OrderDetail();
-                $orderDetail->id_order = $order->id;
-                $orderDetail->product_id = $productId;
-                $orderDetail->id_warehouse = 0;
-                $orderDetail->id_shop = $context->shop->id;
-                $orderDetail->product_name = $product->name[Context::getContext()->language->id] ?: $lineItem->getDescription();
-                $orderDetail->product_quantity = $lineItem->getQuantity();
-                $orderDetail->unit_price_tax_incl = $lineItem->getUnitPriceInclVat();
-                $orderDetail->unit_price_tax_excl = $lineItem->getUnitPriceInclVat() - ($lineItem->getLineVat() / $lineItem->getQuantity());
-                $orderDetail->total_price_tax_incl = $lineItem->getLineTotalInclVat();
-                $orderDetail->total_price_tax_excl = $lineItem->getLineTotalInclVat() - $lineItem->getLineVat();
-
-                $orderDetail->product_price = $lineItem->getUnitPriceInclVat() - ($lineItem->getLineVat() / $lineItem->getQuantity()); // Excl VAT
-                $orderDetail->original_product_price = $orderDetail->product_price;
-                $orderDetail->unit_price_tax_incl = $lineItem->getUnitPriceInclVat();
-                $orderDetail->unit_price_tax_excl = $orderDetail->product_price;
-                $orderDetail->total_price_tax_incl = $lineItem->getLineTotalInclVat();
-                $orderDetail->total_price_tax_excl = $lineItem->getLineTotalInclVat() - $lineItem->getLineVat();
-                $orderDetail->product_reference = $product->reference ?: '';
-                $orderDetail->product_supplier_reference = $product->supplier_reference ?: '';
-                $orderDetail->product_weight = $product->weight ?: 0;
-                $orderDetail->id_customization = 0;
-                $orderDetail->product_quantity_discount = 0;
-                $orderDetail->product_ean13 = $product->ean13 ?: '';
-                $orderDetail->product_isbn = $product->isbn ?: '';
-                $orderDetail->product_upc = $product->upc ?: '';
-                $orderDetail->product_mpn = $product->mpn ?: '';
-                $orderDetail->add();
+                return;
             }
+
+            $product = new Product($productId);
+            $orderDetail = $lineItem->toPrestaShopOrderDetail($order->id, $product, $context);
+
+            if (!$orderDetail->add()) {
+                Logger::logError(
+                    "Failed to add order detail for product {$productId}",
+                    'PrestaShopOrdersService',
+                    ['order_id' => $order->id, 'product_id' => $productId]
+                );
+            }
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to create order detail: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'order_id' => $order->id,
+                    'merchant_product_no' => $lineItem->getMerchantProductNo(),
+                    'stack_trace' => $e->getTraceAsString()
+                ]
+            );
         }
     }
 
     /**
      * Update existing PrestaShop order with ChannelEngine data
      *
+     * @param PrestaShopOrderEntity $prestaShopOrderEntity
      * @param PrestaShopOrder $prestaShopOrder
-     * @param ChannelEngineOrder $channelEngineOrder
      *
      * @return CreateResponse
-     *
-     * @throws PrestaShopException
      */
-    private function updateExistingOrder(PrestaShopOrder $prestaShopOrder, ChannelEngineOrder $channelEngineOrder): CreateResponse
+    private function updateExistingOrder(PrestaShopOrderEntity $prestaShopOrderEntity,
+                                         PrestaShopOrder $prestaShopOrder): CreateResponse
     {
-        // Update order status if changed
-        $newState = $this->getOrderStateFromChannelEngineStatus($channelEngineOrder->getStatus());
+        try {
+            $newState = $this->getOrderStateFromChannelEngineStatus($prestaShopOrder->getStatus());
 
-        if ($prestaShopOrder->current_state != $newState) {
-            $orderHistory = new OrderHistory();
-            $orderHistory->id_order = $prestaShopOrder->id;
-            $orderHistory->changeIdOrderState($newState, $prestaShopOrder->id);
-            $orderHistory->addWithemail();
+            if ($prestaShopOrderEntity->current_state != $newState) {
+                $orderHistory = new OrderHistory();
+                $orderHistory->id_order = $prestaShopOrderEntity->id;
+                $orderHistory->changeIdOrderState($newState, $prestaShopOrderEntity->id);
+                $orderHistory->addWithemail();
 
-            Logger::logInfo(
-                "Updated order {$prestaShopOrder->id} status to {$channelEngineOrder->getStatus()}",
-                'PrestaShopOrdersService'
+                Logger::logInfo(
+                    "Updated order {$prestaShopOrderEntity->id} status to {$prestaShopOrder->getStatus()}",
+                    'PrestaShopOrdersService'
+                );
+            }
+
+            return $this->createSuccessResponse("Order updated successfully",
+                $prestaShopOrderEntity->reference);
+        } catch (Exception $e) {
+            Logger::logError(
+                "Failed to update existing order: " . $e->getMessage(),
+                'PrestaShopOrdersService',
+                [
+                    'prestashop_order_id' => $prestaShopOrderEntity->id,
+                    'channelengine_order_id' => $prestaShopOrder->getChannelEngineOrderId(),
+                    'stack_trace' => $e->getTraceAsString()
+                ]
             );
-        }
 
-        return new CreateResponse(true, "Order updated successfully", $prestaShopOrder->reference);
+            return $this->createErrorResponse($e->getMessage());
+        }
     }
 
     /**
-     * Convert ChannelEngine order number to short reference format
+     * Create success response
      *
-     * @param string $channelOrderNo
-     * @return string
+     * @param string $message
+     * @param string $shopOrderId
+     *
+     * @return CreateResponse
      */
-    private function getShortReference(string $channelOrderNo): string
+    private function createSuccessResponse(string $message, string $shopOrderId): CreateResponse
     {
-        // Extract just the number part from "CE-TEST-52254" -> "52254"
-        $orderNumber = str_replace('CE-TEST-', '', $channelOrderNo);
+        $response = new CreateResponse();
+        $response->setSuccess(true);
+        $response->setMessage($message);
+        $response->setShopOrderId($shopOrderId);
 
-        // Create short reference "CE-52254" (8 chars, fits in VARCHAR(9))
-        return 'CE-' . $orderNumber;
+        return $response;
+    }
+
+    /**
+     * Create error response
+     *
+     * @param string $message
+     *
+     * @return CreateResponse
+     */
+    private function createErrorResponse(string $message): CreateResponse
+    {
+        $response = new CreateResponse();
+        $response->setSuccess(false);
+        $response->setMessage($message);
+
+        return $response;
     }
 }

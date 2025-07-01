@@ -7,8 +7,6 @@ if (!defined('_PS_VERSION_')) {
 use ChannelEngine\BusinessLogic\Webhooks\DTO\Webhook;
 use ChannelEngine\BusinessLogic\Webhooks\Handlers\OrderWebhookHandler;
 use ChannelEngine\Infrastructure\Logger\Logger;
-use ChannelEngine\Infrastructure\ServiceRegister;
-use ChannelEngineCore\Business\Service\PrestaShopWebhooksService;
 
 /**
  * Webhook handler controller for ChannelEngine webhooks
@@ -22,8 +20,6 @@ class channelenginecorewebhookModuleFrontController extends ModuleFrontControlle
 
     /**
      * Handles incoming webhook requests
-     *
-     * @throws PrestaShopException
      */
     public function initContent(): void
     {
@@ -54,17 +50,14 @@ class channelenginecorewebhookModuleFrontController extends ModuleFrontControlle
 
             $event = $event === 'ORDERS_CREATE' ? 'orders' : $event;
 
-            // Create webhook DTO
             $webhook = new Webhook(
                 $tenant,
                 $token,
                 $event
             );
 
-            // Handle the webhook based on event type
             $this->handleWebhook($webhook);
 
-            // Respond with success
             $this->respondWithSuccess('Webhook processed successfully');
 
         } catch (Throwable $e) {
@@ -87,23 +80,28 @@ class channelenginecorewebhookModuleFrontController extends ModuleFrontControlle
      * Handle webhook based on event type
      *
      * @param Webhook $webhook
+     *
      * @throws Exception
      */
     private function handleWebhook(Webhook $webhook): void
     {
-        switch ($webhook->getEvent()) {
-            case 'ORDERS_CREATE':
-            case 'orders': // fallback for different event naming
-                $handler = new OrderWebhookHandler();
-                $handler->handle($webhook);
-                break;
+        try {
+            switch ($webhook->getEvent()) {
+                case 'ORDERS_CREATE':
+                case 'orders':
+                    $handler = new OrderWebhookHandler();
+                    $handler->handle($webhook);
+                    break;
 
-            default:
-                Logger::logWarning(
-                    'Unknown webhook event type: ' . $webhook->getEvent(),
-                    'Webhook'
-                );
-                break;
+                default:
+                    Logger::logWarning(
+                        'Unknown webhook event type: ' . $webhook->getEvent(),
+                        'Webhook'
+                    );
+                    break;
+            }
+        } catch (Throwable $e) {
+            Logger::logError('Webhook processing failed: ' . $e->getMessage(), 'Webhook Controller');
         }
     }
 

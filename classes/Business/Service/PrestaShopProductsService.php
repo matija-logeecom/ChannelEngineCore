@@ -16,6 +16,7 @@ use PrestaShopDatabaseException;
 use PrestaShopException;
 use Product as PrestaShopProduct;
 use StockAvailable;
+use Tax;
 use Validate;
 
 class PrestaShopProductsService implements ProductsService
@@ -23,6 +24,8 @@ class PrestaShopProductsService implements ProductsService
 
     /**
      * Gets all product IDs
+     *
+     * @returns int[]
      *
      * @throws PrestaShopDatabaseException
      * @throws PrestaShopException
@@ -94,14 +97,14 @@ class PrestaShopProductsService implements ProductsService
     /**
      * Creates a Product from PrestaShop product ID
      *
-     * @param mixed $id
+     * @param int $id
      * @param array $context
      *
      * @return ProductDTO|null
      */
-    private function loadProductById($id, array $context): ?ProductDTO
+    private function loadProductById(int $id, array $context): ?ProductDTO
     {
-        $prestashopProduct = new PrestaShopProduct((int)$id, false, $context['idLang'], $context['idShop']);
+        $prestashopProduct = new PrestaShopProduct($id, false, $context['idLang'], $context['idShop']);
 
         if (!Validate::isLoadedObject($prestashopProduct) || !$prestashopProduct->active) {
             return null;
@@ -205,7 +208,7 @@ class PrestaShopProductsService implements ProductsService
     private function getVatRateType(PrestaShopProduct $product): string
     {
         try {
-            $taxRate = \Tax::getProductTaxRate($product->id, null, Context::getContext());
+            $taxRate = Tax::getProductTaxRate($product->id, null, Context::getContext());
 
             if ($taxRate === null) {
                 return 'STANDARD';

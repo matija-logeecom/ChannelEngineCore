@@ -27,7 +27,6 @@ class channelenginecoreasyncprocessModuleFrontController extends ModuleFrontCont
         Logger::logDebug('Received async process request.', 'Integration', array('guid' => $guid));
 
         try {
-            /** @var AsyncProcessService $asyncProcessService */
             $asyncProcessService = ServiceRegister::getService(AsyncProcessService::CLASS_NAME);
             $asyncProcessService->runProcess($guid);
 

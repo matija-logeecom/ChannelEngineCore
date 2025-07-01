@@ -4,26 +4,23 @@ namespace ChannelEngineCore\Business\DTO;
 
 use ChannelEngine\BusinessLogic\Products\Domain\Product;
 
-/**
- * PrestaShop-specific Product DTO - NOT extending core Product
- */
 class PrestaShopProduct
 {
-    private $id;
-    private $price;
-    private $stock;
-    private $name;
-    private $description;
-    private $ean;
-    private $vatRateType;
-    private $mainImageUrl;
-    private $additionalImageUrls;
-    private $customAttributes;
-    private $categoryTrail;
-    private $variants;
+    private int $id;
+    private float $price;
+    private int $stock;
+    private string $name;
+    private ?string $description;
+    private ?string $ean;
+    private string $vatRateType;
+    private ?string $mainImageUrl;
+    private array $additionalImageUrls;
+    private array $customAttributes;
+    private string $categoryTrail;
+    private array $variants;
 
     public function __construct(
-        $id,
+        int $id,
         float $price,
         int $stock,
         string $name,
@@ -59,6 +56,7 @@ class PrestaShopProduct
      * @param array $customAttributes
      * @param string $categoryTrail
      * @param array $variants
+     *
      * @return self
      */
     public static function fromPrestaShopData(
@@ -118,62 +116,97 @@ class PrestaShopProduct
         );
     }
 
-    // Getters
-    public function getId()
+    /**
+     * @return int
+     */
+    public function getId(): int
     {
         return $this->id;
     }
 
+    /**
+     * @return float
+     */
     public function getPrice(): float
     {
         return $this->price;
     }
 
+    /**
+     * @return int
+     */
     public function getStock(): int
     {
         return $this->stock;
     }
 
+    /**
+     * @return string
+     */
     public function getName(): string
     {
         return $this->name;
     }
 
+    /**
+     * @return string|null
+     */
     public function getDescription(): ?string
     {
         return $this->description;
     }
 
+    /**
+     * @return string|null
+     */
     public function getEan(): ?string
     {
         return $this->ean;
     }
 
+    /**
+     * @return string
+     */
     public function getVatRateType(): string
     {
         return $this->vatRateType;
     }
 
+    /**
+     * @return string|null
+     */
     public function getMainImageUrl(): ?string
     {
         return $this->mainImageUrl;
     }
 
+    /**
+     * @return array
+     */
     public function getAdditionalImageUrls(): array
     {
         return $this->additionalImageUrls;
     }
 
+    /**
+     * @return array
+     */
     public function getCustomAttributes(): array
     {
         return $this->customAttributes;
     }
 
+    /**
+     * @return string
+     */
     public function getCategoryTrail(): string
     {
         return $this->categoryTrail;
     }
 
+    /**
+     * @return array
+     */
     public function getVariants(): array
     {
         return $this->variants;

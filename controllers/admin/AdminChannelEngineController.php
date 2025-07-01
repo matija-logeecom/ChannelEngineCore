@@ -23,7 +23,7 @@ class AdminChannelEngineController extends ModuleAdminController
         parent::__construct();
     }
 
-    public function setMedia($isNewTheme = false)
+    public function setMedia($isNewTheme = false): void
     {
         parent::setMedia($isNewTheme);
 
@@ -207,10 +207,8 @@ class AdminChannelEngineController extends ModuleAdminController
         try {
             $webhooksService = ServiceRegister::getService(WebhooksService::class);
 
-            // Create webhook token first
             $webhooksService->createWebhookToken();
 
-            // Create the webhook on ChannelEngine
             $webhooksService->create();
 
             Logger::logInfo(
@@ -218,7 +216,6 @@ class AdminChannelEngineController extends ModuleAdminController
                 'AdminController'
             );
         } catch (Throwable $e) {
-            // Log error but don't fail the connection process
             Logger::logError(
                 'Failed to setup webhooks: ' . $e->getMessage(),
                 'AdminController',

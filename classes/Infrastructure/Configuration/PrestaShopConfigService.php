@@ -54,7 +54,6 @@ class PrestaShopConfigService extends ConfigService
 
     /**
      * Override async process call HTTP method to use GET instead of POST
-     * This matches the working Packlink configuration
      *
      * @return string
      */
